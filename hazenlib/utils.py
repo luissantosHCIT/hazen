@@ -392,21 +392,6 @@ def determine_orientation(dcm_list):
             "saggital", "coronal", "axial", or "unexpected" orientation. \n
             list of the changing ImagePositionPatient values.
     """
-    # for dcm in dcm_list:
-    #     print(dcm.InstanceNumber) # unique
-    #     print(dcm.ImagePositionPatient) # unique
-    #     # The x, y, and z coordinates of the upper left hand corner (center of the first voxel transmitted) of the image, in mm
-    #     # eg [28.364610671997, -88.268096923828, 141.94101905823]
-    #     print(dcm.ImageOrientationPatient) # common
-    #     # The direction cosines of the first row and the first column with respect to the patient.
-    #     # eg
-    #     # [1, 0, 0, 0, 1, 0]  transverse/axial
-    #     # [1, 0, 0, 0, 0, -1] coronal
-    #     # [0, 1, 0, 0, 0, -1] sagittal
-    #     print(dcm.PixelSpacing) # common
-    #     # Physical distance in the patient between the center of each pixel, specified by a numeric pair - adjacent row spacing (dx) (delimiter) adjacent column spacing (dy) in mm.
-    #     print(dcm.SliceThickness) # common
-    #     # Nominal slice thickness, in mm
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
@@ -495,6 +480,74 @@ def detect_circle(img, dx):
         minRadius=int(5 / dx),
         maxRadius=int(16 / dx),
     )
+    return detected_circles
+
+
+def detect_circle2(img, dx, dy):
+    """Attempt to detect circle locations using cv2.HoughCircles().
+
+    Args:
+        img (np.ndarray): pixel array containing the data to perform circle detection on
+        dx (int): The coordinates of the point to rotate
+        dy (int, optional): The amplitude threshold for peak identification. Defaults to 1.
+
+    Returns:
+        np.ndarray: Flattened array of tuples
+
+    """
+    normalised_img = cv.normalize(
+        src=img,
+        dst=None,
+        alpha=0,
+        beta=255,
+        norm_type=cv.NORM_MINMAX,
+        dtype=cv.CV_8U,
+    )
+
+    try:
+        detected_circles = cv.HoughCircles(
+            normalised_img,
+            cv.HOUGH_GRADIENT_ALT,
+            1,
+            param1=50,
+            param2=30,
+            minDist=int(180 / dy),
+            minRadius=int(180 / (2 * dy)),
+            maxRadius=int(200 / (2 * dx)),
+        )
+        if detected_circles is None:
+            detected_circles = cv.HoughCircles(
+                normalised_img,
+                cv.HOUGH_GRADIENT,
+                1,
+                param1=50,
+                param2=30,
+                minDist=int(180 / dy),
+                minRadius=int(180 / (2 * dy)),
+                maxRadius=int(200 / (2 * dx)),
+            )
+    except AttributeError as e:
+        detected_circles = cv.HoughCircles(
+            normalised_img,
+            cv.HOUGH_GRADIENT_ALT,
+            1,
+            param1=50,
+            param2=30,
+            minDist=int(180 / dy),
+            minRadius=80,
+            maxRadius=200,
+        )
+        if detected_circles is None:
+            detected_circles = cv.HoughCircles(
+                normalised_img,
+                cv.HOUGH_GRADIENT_ALT,
+                1,
+                param1=50,
+                param2=30,
+                minDist=int(180 / dy),
+                minRadius=80,
+                maxRadius=200,
+            )
     return detected_circles
 
 

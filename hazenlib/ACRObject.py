@@ -4,7 +4,7 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle
+from hazenlib.utils import determine_orientation, detect_circle, detect_circle2
 
 
 class ACRObject:
@@ -87,14 +87,6 @@ class ACRObject:
         logger.debug("Neither slices had a circle detected")
         return dcm_list
 
-        # if true_circle[0] > self.images[0].shape[0] // 2:
-        #     print("Performing LR orientation swap to restore correct view.")
-        #     flipped_images = [np.fliplr(image) for image in self.images]
-        #     for index, dcm in enumerate(self.dcms):
-        #         dcm.PixelData = flipped_images[index].tobytes()
-        # else:
-        #     print("LR orientation swap not required.")
-
     @staticmethod
     def determine_rotation(img):
         """Determine the rotation angle of the phantom using edge detection and the Hough transform.
@@ -149,6 +141,8 @@ class ACRObject:
 
         Args:
             img (np.ndarray): pixel array of the DICOM image.
+            dx (int): pixel array of the DICOM image.
+            dy (int): pixel array of the DICOM image.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
@@ -156,30 +150,7 @@ class ACRObject:
 
         img_blur = cv2.GaussianBlur(img, (1, 1), 0)
         img_grad = cv2.Sobel(img_blur, 0, dx=1, dy=1)
-
-        try:
-            detected_circles = cv2.HoughCircles(
-                img_grad,
-                cv2.HOUGH_GRADIENT,
-                1,
-                param1=50,
-                param2=30,
-                minDist=int(180 / dy),
-                minRadius=int(180 / (2 * dy)),
-                maxRadius=int(200 / (2 * dx)),
-            ).flatten()
-        except AttributeError:
-            detected_circles = cv2.HoughCircles(
-                img_grad,
-                cv2.HOUGH_GRADIENT,
-                1,
-                param1=50,
-                param2=30,
-                minDist=int(180 / dy),
-                minRadius=80,
-                maxRadius=200,
-            ).flatten()
-
+        detected_circles = detect_circle2(img_grad, dx, dy).flatten()
         centre_x = round(detected_circles[0])
         centre_y = round(detected_circles[1])
         radius = round(detected_circles[2])
