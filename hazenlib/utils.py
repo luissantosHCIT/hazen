@@ -483,7 +483,7 @@ def detect_circle(img, dx):
     return detected_circles
 
 
-def detect_circle2(img, dx, dy):
+def detect_centroid(img, dx, dy):
     """Attempt to detect circle locations using cv2.HoughCircles().
 
     Args:

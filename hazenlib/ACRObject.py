@@ -4,7 +4,7 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle, detect_circle2
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid
 
 
 class ACRObject:
@@ -150,7 +150,7 @@ class ACRObject:
 
         img_blur = cv2.GaussianBlur(img, (1, 1), 0)
         img_grad = cv2.Sobel(img_blur, 0, dx=1, dy=1)
-        detected_circles = detect_circle2(img_grad, dx, dy).flatten()
+        detected_circles = detect_centroid(img_grad, dx, dy).flatten()
         centre_x = round(detected_circles[0])
         centre_y = round(detected_circles[1])
         radius = round(detected_circles[2])

@@ -133,7 +133,40 @@ class TestACRToolsGE(TestACRTools):
         self.img1 = self.ACR_object.slice_stack[0].pixel_array
         self.img7 = self.ACR_object.slice_stack[6].pixel_array
 
+    def test_find_centre(self):
+        phantom_centre, _ = self.ACR_object.find_phantom_center(
+            self.img7, self.ACR_object.dx, self.ACR_object.dy
+        )
+        assert self.centre == phantom_centre
+
     def test_rotate_point(self):
         rotated_point = np.array(self.ACR_object.rotate_point((0, 0), (30, 70), 150))
         rotated_point = np.round(rotated_point, 2)
         assert (rotated_point == self.test_point).all() == True
+
+
+# GE axial
+class TestACRToolsPhilips(TestACRTools):
+    rotation = 0.0
+    centre = (130, 130)
+    horizontal_distance = 190.4296875
+    horizontal_end = (128, 255)
+    vertical_distance = 189.453125
+    vertical_end = (255, 130)
+    test_point = (-60.98, -45.62)
+
+    def setUp(self):
+        self.Philips_data = [
+            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "Philips", f"{i}"))
+            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "Philips"))
+        ]
+
+        self.ACR_object = ACRObject(self.Philips_data)
+        self.img1 = self.ACR_object.slice_stack[0].pixel_array
+        self.img7 = self.ACR_object.slice_stack[6].pixel_array
+
+    def test_find_centre(self):
+        phantom_centre, _ = self.ACR_object.find_phantom_center(
+            self.img7, self.ACR_object.dx, self.ACR_object.dy
+        )
+        assert self.centre == phantom_centre
