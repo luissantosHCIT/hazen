@@ -495,29 +495,23 @@ def detect_centroid(img, dx, dy):
         np.ndarray: Flattened array of tuples
 
     """
-    normalised_img = cv.normalize(
-        src=img,
-        dst=None,
-        alpha=0,
-        beta=255,
-        norm_type=cv.NORM_MINMAX,
-        dtype=cv.CV_8U,
-    )
+    img_blur = cv.GaussianBlur(img, (1, 1), 0)
+    img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
 
     try:
         detected_circles = cv.HoughCircles(
-            normalised_img,
+            img_grad,
             cv.HOUGH_GRADIENT_ALT,
             1,
-            param1=50,
-            param2=30,
+            param1=300,
+            param2=0.9,
             minDist=int(180 / dy),
             minRadius=int(180 / (2 * dy)),
             maxRadius=int(200 / (2 * dx)),
         )
         if detected_circles is None:
             detected_circles = cv.HoughCircles(
-                normalised_img,
+                img_grad,
                 cv.HOUGH_GRADIENT,
                 1,
                 param1=50,
@@ -528,19 +522,19 @@ def detect_centroid(img, dx, dy):
             )
     except AttributeError as e:
         detected_circles = cv.HoughCircles(
-            normalised_img,
+            img_grad,
             cv.HOUGH_GRADIENT_ALT,
             1,
-            param1=50,
-            param2=30,
+            param1=300,
+            param2=0.9,
             minDist=int(180 / dy),
             minRadius=80,
             maxRadius=200,
         )
         if detected_circles is None:
             detected_circles = cv.HoughCircles(
-                normalised_img,
-                cv.HOUGH_GRADIENT_ALT,
+                img_grad,
+                cv.HOUGH_GRADIENT,
                 1,
                 param1=50,
                 param2=30,

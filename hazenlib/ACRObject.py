@@ -147,10 +147,7 @@ class ACRObject:
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
         """
-
-        img_blur = cv2.GaussianBlur(img, (1, 1), 0)
-        img_grad = cv2.Sobel(img_blur, 0, dx=1, dy=1)
-        detected_circles = detect_centroid(img_grad, dx, dy).flatten()
+        detected_circles = detect_centroid(img, dx, dy).flatten()
         centre_x = round(detected_circles[0])
         centre_y = round(detected_circles[1])
         radius = round(detected_circles[2])
