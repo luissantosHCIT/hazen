@@ -11,7 +11,7 @@ from tests import TEST_DATA_DIR, TEST_REPORT_DIR
 
 class TestACRUniformitySiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    piu = 68.04
+    piu = 66.94
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)

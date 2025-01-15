@@ -204,7 +204,10 @@ class ACRSlicePosition(HazenTask):
             float: bar length difference.
         """
         img = dcm.pixel_array
-        mask = self.ACR_obj.get_mask_image(img)
+        cxy, _ = self.ACR_obj.find_phantom_center(
+            img, self.ACR_obj.dx, self.ACR_obj.dy
+        )
+        mask = self.ACR_obj.get_mask_image(img, cxy)
         x_pts, y_pts = self.find_wedges(img, mask)
 
         # line profile through left wedge

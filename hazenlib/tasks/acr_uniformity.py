@@ -81,9 +81,9 @@ class ACRUniformity(HazenTask):
         d_void = np.ceil(5 / self.ACR_obj.dy).astype(int)
         dims = img.shape  # Dimensions of image
 
-        mask=self.ACR_obj.get_mask_image(img)
-        cx, cy = mask.shape[1] // 2, mask.shape[0] // 2
-        (centre_x, centre_y) = (cx,cy)
+        (centre_x, centre_y), _ = self.ACR_obj.find_phantom_center(
+            img, self.ACR_obj.dx, self.ACR_obj.dy
+        )
 
         # Dummy circular mask at centroid
         base_mask = ACRObject.circular_mask((centre_x, centre_y + d_void), r_small, dims)
@@ -109,7 +109,7 @@ class ACRUniformity(HazenTask):
         filtered_results = []
         for x, y, mean_val in results:
             # Distance from centre of small ROI to centre of large ROI
-            distance_to_centre = np.sqrt((x - cx)**2 + (y - cy)**2)
+            distance_to_centre = np.sqrt((x - centre_x)**2 + (y - centre_y)**2)
             if distance_to_centre + r_small <= r_large:
                 # Filtering small ROIs to only include those that fall completely within the larger ROI
                 filtered_results.append((x, y, mean_val))

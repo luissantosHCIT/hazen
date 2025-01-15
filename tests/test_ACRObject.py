@@ -37,8 +37,9 @@ class TestACRTools(unittest.TestCase):
         assert self.rotation == np.round(rotation_angle, 1)
 
     def test_measure_orthogonal_lengths(self):
-        mask = self.ACR_object.get_mask_image(self.img1)
-        length_dict = self.ACR_object.measure_orthogonal_lengths(mask, 0)
+        cxy, _ = self.ACR_object.find_phantom_center(self.img1, self.ACR_object.dx, self.ACR_object.dy)
+        mask = self.ACR_object.get_mask_image(self.img1, cxy)
+        length_dict = self.ACR_object.measure_orthogonal_lengths(mask, cxy)
         assert self.horizontal_distance == length_dict["Horizontal Distance"]
         assert self.horizontal_end == length_dict["Horizontal End"]
         assert self.vertical_distance == length_dict["Vertical Distance"]
@@ -153,7 +154,6 @@ class TestACRToolsPhilips(TestACRTools):
     horizontal_end = (125, 255)
     vertical_distance = 189.453125
     vertical_end = (255, 131)
-    test_point = (-60.98, -45.62)
 
     def setUp(self):
         self.Philips_data = [

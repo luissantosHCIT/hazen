@@ -156,20 +156,20 @@ class ACRObject:
 
         return (centre_x, centre_y), radius
 
-    def get_mask_image(self, image, mag_threshold=0.07, open_threshold=500):
+    def get_mask_image(self, image, centre, mag_threshold=0.07, open_threshold=500):
         """Create a masked pixel array. \n
         Mask an image by magnitude threshold before applying morphological opening to remove small unconnected
         features. The convex hull is calculated in order to accommodate for potential air bubbles.
 
         Args:
             image (np.ndarray): pixel array of the dicom
+            centre (tuple): x,y coordinates of the circle centre.
             mag_threshold (float, optional): magnitude threshold. Defaults to 0.07.
             open_threshold (int, optional): open threshold. Defaults to 500.
 
         Returns:
             np.ndarray: the masked image
         """
-        centre, _ = self.find_phantom_center(image, self.dx, self.dy)
         test_mask = self.circular_mask(centre, (80 // self.dx), image.shape)
         test_image = image * test_mask
         # get range of values in the mask
@@ -219,11 +219,12 @@ class ACRObject:
 
         return mask
 
-    def measure_orthogonal_lengths(self, mask, slice_index):
+    def measure_orthogonal_lengths(self, mask, cxy):
         """Compute the horizontal and vertical lengths of a mask, based on the centroid.
 
         Args:
             mask (np.ndarray): Boolean array of the image where pixel values meet threshold
+            cxy  (tuple): x,y coordinates of the circle centre.
 
         Returns:
             dict: a dictionary with the following:
@@ -237,9 +238,7 @@ class ACRObject:
                     The horizontal/vertical length of the object.
         """
         dims = mask.shape
-        (vertical, horizontal), radius = self.find_phantom_center(
-            self.slice_stack[slice_index].pixel_array, self.dx, self.dy
-        )
+        (vertical, horizontal) = cxy
 
         horizontal_start = (horizontal, 0)
         horizontal_end = (horizontal, dims[0] - 1)
