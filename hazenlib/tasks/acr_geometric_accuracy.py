@@ -33,6 +33,7 @@ import skimage.morphology
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
+from hazenlib import logger
 
 
 class ACRGeometricAccuracy(HazenTask):
@@ -63,7 +64,7 @@ class ACRGeometricAccuracy(HazenTask):
                 "Vertical distance": round(lengths_1[1], 2),
             }
         except Exception as e:
-            print(
+            logger.error(
                 f"Could not calculate the geometric accuracy for {self.img_desc(self.ACR_obj.slice_stack[0])} because of : {e}"
             )
             traceback.print_exc(file=sys.stdout)
@@ -77,7 +78,7 @@ class ACRGeometricAccuracy(HazenTask):
                 "Diagonal distance SE": round(lengths_5[3], 2),
             }
         except Exception as e:
-            print(
+            logger.error(
                 f"Could not calculate the geometric accuracy for {self.img_desc(self.ACR_obj.slice_stack[4])} because of : {e}"
             )
 

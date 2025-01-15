@@ -147,10 +147,12 @@ class ACRObject:
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
         """
+        logger.info("Detecting centroid location ...")
         detected_circles = detect_centroid(img, dx, dy).flatten()
         centre_x = round(detected_circles[0])
         centre_y = round(detected_circles[1])
         radius = round(detected_circles[2])
+        logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
         return (centre_x, centre_y), radius
 
