@@ -40,9 +40,10 @@ class TestACRTools(unittest.TestCase):
         cxy, _ = self.ACR_object.find_phantom_center(self.img1, self.ACR_object.dx, self.ACR_object.dy)
         mask = self.ACR_object.get_mask_image(self.img1, cxy)
         length_dict = self.ACR_object.measure_orthogonal_lengths(mask, cxy)
-        assert self.horizontal_distance == length_dict["Horizontal Distance"]
+        # We report the distances with 2 significant figures of precision.
+        assert np.round(self.horizontal_distance, 2) == np.round(length_dict["Horizontal Distance"], 2)
         assert self.horizontal_end == length_dict["Horizontal End"]
-        assert self.vertical_distance == length_dict["Vertical Distance"]
+        assert np.round(self.vertical_distance, 2) == np.round(length_dict["Vertical Distance"], 2)
         assert self.vertical_end == length_dict["Vertical End"]
 
 
@@ -146,7 +147,7 @@ class TestACRToolsGE(TestACRTools):
         assert (rotated_point == self.test_point).all() == True
 
 
-# GE axial
+# Philips Achieva axial
 class TestACRToolsPhilips(TestACRTools):
     rotation = 0.0
     centre = (130, 130)
@@ -157,8 +158,34 @@ class TestACRToolsPhilips(TestACRTools):
 
     def setUp(self):
         self.Philips_data = [
-            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "Philips", f"{i}"))
-            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "Philips"))
+            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "PhilipsAchieva", f"{i}"))
+            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "PhilipsAchieva"))
+        ]
+
+        self.ACR_object = ACRObject(self.Philips_data)
+        self.img1 = self.ACR_object.slice_stack[0].pixel_array
+        self.img7 = self.ACR_object.slice_stack[6].pixel_array
+
+    def test_find_centre(self):
+        phantom_centre, _ = self.ACR_object.find_phantom_center(
+            self.img7, self.ACR_object.dx, self.ACR_object.dy
+        )
+        assert self.centre == phantom_centre
+
+
+# Siemens Magnetom Sola Fit axial
+class TestACRToolsSiemensSolaFit(TestACRTools):
+    rotation = 0.0
+    centre = (127, 128)
+    horizontal_distance = 190.42959000000002
+    horizontal_end = (126, 255)
+    vertical_distance = 190.43
+    vertical_end = (255, 129)
+
+    def setUp(self):
+        self.Philips_data = [
+            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "SiemensSolaFit", f"{i}"))
+            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "SiemensSolaFit"))
         ]
 
         self.ACR_object = ACRObject(self.Philips_data)
