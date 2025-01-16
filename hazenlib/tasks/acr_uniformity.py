@@ -59,6 +59,9 @@ class ACRUniformity(HazenTask):
 
         return results
 
+    def calculate_uniformity(self, min_value, max_value):
+        return 100 * (1 - (max_value - min_value) / (max_value + min_value))
+
     def get_integral_uniformity(self, dcm):
         """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
         Iterates with a ~1 cm^2 ROI through a ~200 cm^2 ROI inside the phantom region,
@@ -77,17 +80,14 @@ class ACRUniformity(HazenTask):
         r_large = np.ceil(80 / self.ACR_obj.dx).astype(int)
         # Required pixel radius to produce ~1cm2 ROI
         r_small = np.ceil(np.sqrt(100 / np.pi) / self.ACR_obj.dx).astype(int)
-        # Offset distance for rectangular void at top of phantom
-        d_void = np.ceil(5 / self.ACR_obj.dy).astype(int)
-        dims = img.shape  # Dimensions of image
 
         (centre_x, centre_y), _ = self.ACR_obj.find_phantom_center(
             img, self.ACR_obj.dx, self.ACR_obj.dy
         )
 
         # Dummy circular mask at centroid
-        base_mask = ACRObject.circular_mask((centre_x, centre_y + d_void), r_small, dims)
-        coords = np.nonzero(base_mask)  # Coordinates of mask
+        #base_mask = ACRObject.circular_mask((centre_x, centre_y + d_void), r_small, dims)
+        #coords = np.nonzero(base_mask)  # Coordinates of mask
 
         # TODO: ensure that shifting the sampling circle centre
         # is in the correct direction by a correct factor
@@ -120,11 +120,9 @@ class ACRUniformity(HazenTask):
         min_value = min_mean_tuple[2]
         x_max, y_max = max_mean_tuple[0], max_mean_tuple[1]
         x_min, y_min = min_mean_tuple[0], min_mean_tuple[1]
-        min_loc = [x_min, y_min]
-        max_loc = [x_max, y_max]
 
         # Uniformity calculation
-        piu = 100 * (1 - (max_value - min_value) / (max_value + min_value))
+        piu = self.calculate_uniformity(min_value, max_value)
 
         if self.report:
             import matplotlib.pyplot as plt
@@ -142,27 +140,27 @@ class ACRUniformity(HazenTask):
 
             axes[1].imshow(img)
             axes[1].scatter(
-                [max_loc[1], min_loc[1]], [max_loc[0], min_loc[0]], c="red", marker="x"
+                [y_max, y_min], [x_max, x_min], c="red", marker="x"
             )
             axes[1].plot(
-                r_small * np.cos(theta) + max_loc[1],
-                r_small * np.sin(theta) + max_loc[0],
+                r_small * np.cos(theta) + y_max,
+                r_small * np.sin(theta) + x_max,
                 c="yellow",
             )
             axes[1].annotate(
                 "Min = " + str(np.round(min_value, 1)),
-                [min_loc[1], min_loc[0] + 10 / self.ACR_obj.dx],
+                [y_min, x_min + 10 / self.ACR_obj.dx],
                 c="white",
             )
 
             axes[1].plot(
-                r_small * np.cos(theta) + min_loc[1],
-                r_small * np.sin(theta) + min_loc[0],
+                r_small * np.cos(theta) + y_min,
+                r_small * np.sin(theta) + x_min,
                 c="yellow",
             )
             axes[1].annotate(
                 "Max = " + str(np.round(max_value, 1)),
-                [max_loc[1], max_loc[0] + 10 / self.ACR_obj.dx],
+                [y_max, x_max + 10 / self.ACR_obj.dx],
                 c="white",
             )
             axes[1].plot(
