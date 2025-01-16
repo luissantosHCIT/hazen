@@ -557,6 +557,25 @@ def detect_centroid(img, dx, dy):
     return detected_circles.flatten()
 
 
+def find_element_coordinate(arr, argx, width):
+    return np.divmod(argx, width)
+
+
+def create_roi_at(img, radius, x_coord, y_coord):
+    height, width = img.shape
+    y_grid, x_grid = np.ogrid[:height, :width]
+    mask = (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
+    masked_img = img.copy()
+    masked_img[~mask] = 0
+    return masked_img
+
+
+def create_roi_with_numpy_index(img, radius, argx):
+    height, width = img.shape
+    x_coord, y_coord = np.divmod(argx, width)
+    return create_roi_at(img, radius, x_coord, y_coord), x_coord, y_coord
+
+
 def debug_image_sample(img, out_path=None):
     """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
     Use this function to force a display of an intermediate numpy image array to visually inspect results.

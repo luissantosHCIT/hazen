@@ -23,6 +23,8 @@ import numpy as np
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
+from hazenlib.utils import create_roi_at, create_roi_with_numpy_index
+from hazenlib import logger
 
 
 class ACRUniformity(HazenTask):
@@ -32,6 +34,10 @@ class ACRUniformity(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
+        # Required pixel radius to produce ~200cm2 ROI
+        self.r_large = np.ceil(np.divide(80, self.ACR_obj.dx)).astype(int)
+        # Required pixel radius to produce ~1cm2 ROI
+        self.r_small = np.ceil(np.divide(np.sqrt(np.divide(100, np.pi)), self.ACR_obj.dx)).astype(int)
 
     def run(self) -> dict:
         """Main function for performing uniformity measurement using slice 7 from the ACR phantom image set.
@@ -59,8 +65,134 @@ class ACRUniformity(HazenTask):
 
         return results
 
+    def write_report(self, img, centre, min_roi, max_roi, piu, dcm):
+        import matplotlib.pyplot as plt
+        (centre_x, centre_y) = centre
+        x_max, y_max, max_value = max_roi
+        x_min, y_min, min_value = min_roi
+
+        fig, axes = plt.subplots(2, 1)
+        fig.set_size_inches(8, 16)
+        fig.tight_layout(pad=4)
+
+        theta = np.linspace(0, 2 * np.pi, 360)
+
+        axes[0].imshow(img)
+        axes[0].scatter(centre_x, centre_y, c="red")
+        axes[0].axis("off")
+        axes[0].set_title("Centroid Location")
+
+        axes[1].imshow(img)
+        axes[1].scatter(
+            [y_max, y_min], [x_max, x_min], c="red", marker="x"
+        )
+        axes[1].plot(
+            self.r_small * np.cos(theta) + y_max,
+            self.r_small * np.sin(theta) + x_max,
+            c="yellow",
+        )
+        axes[1].annotate(
+            "Min = " + str(np.round(min_value, 1)),
+            [y_min, x_min + 10 / self.ACR_obj.dx],
+            c="white",
+        )
+
+        axes[1].plot(
+            self.r_small * np.cos(theta) + y_min,
+            self.r_small * np.sin(theta) + x_min,
+            c="yellow",
+        )
+        axes[1].annotate(
+            "Max = " + str(np.round(max_value, 1)),
+            [y_max, x_max + 10 / self.ACR_obj.dx],
+            c="white",
+        )
+        axes[1].plot(
+            self.r_large * np.cos(theta) + centre_y,
+            self.r_large * np.sin(theta) + centre_x + 5 / self.ACR_obj.dy,
+            c="black",
+        )
+        axes[1].axis("off")
+        axes[1].set_title(
+            "Percent Integral Uniformity = " + str(np.round(piu, 2)) + "%"
+        )
+
+        img_path = os.path.realpath(
+            os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
+        )
+        fig.savefig(img_path)
+        self.report_files.append(img_path)
+
     def calculate_uniformity(self, min_value, max_value):
-        return 100 * (1 - (max_value - min_value) / (max_value + min_value))
+        subtraction = np.subtract(max_value, min_value)
+        addition = np.add(max_value, min_value)
+        division = np.divide(subtraction, addition)
+        fraction = np.subtract(1, division)
+        return np.multiply(100, fraction)
+
+    def get_mean_roi_values(self, img):
+        """
+        This method gets the mean small rois for the areas of minimum and maximum intensities.
+
+        Below is an excerpt from the ACR Large Phantom Guidance
+
+        For each series, the measurements are made according to the following procedure:
+
+            #. Display slice location 7.
+            #. Place a large, circular region-of-interest (ROI) on the image as shown in Figure 15.
+                *. The area of the ROI depends on whether the large (200 cm2) or medium (160 cm2) phantom
+                was scanned (Table 4).
+                *. This large ROI defines the boundary of the region in which the image uniformity is measured.
+                *. Although the mean pixel intensity inside this ROI is not needed for the uniformity test, it is
+                used in the percent signal ghosting test (section 6.0), so it should be noted.
+            #. Set the display window to its minimum, and lower the level until the entire area inside the large ROI is
+            white.
+                *. The goal now is to raise the level slowly until a small, roughly 1 cm2 region of dark pixels
+                develops inside the ROI. This is the region of lowest signal in the large ROI.
+                *. Sometimes more than one region of dark pixels will appear. In that case, focus attention on the
+                largest dark region.
+                *. In some cases, rather than having a well-defined dark region, one or more wide, poorly defined
+                dark areas or areas of mixed black and white pixels are apparent.
+                *. In that case, make a visual estimate of the location of the darkest 1 cm2 portion of the largest
+                dark area should be made.
+            #. Place a 1 cm2 circular ROI on the low-signal region identified in step 3.
+                *. If measuring in the Medium phantom be sure that this ROI does not include any of the notch at
+                the top of the phantom.
+                *. Figures 16a and 17a show what typical Large and Medium phantom images look like at this
+                point.
+                *. Record the mean pixel value for this 1 cm2 ROI. This is the measured low-signal value.
+                *. If there is uncertainty about where to place the ROI because there is no single obviously darkest
+                location, try several locations and select the one having the lowest mean pixel value.
+            #. Raise the level until all but a small, roughly 1 cm2 region of white pixels remains inside the large ROI.
+                *. This is the region of highest signal.
+
+        """
+        # Iterating through the large ROI with the small ROI and storing the results
+        """
+        for x in range(r_small, width - r_small):
+            for y in range (r_small, height - r_small):
+                y_grid, x_grid = np.ogrid[:height, :width]
+                mask = (x_grid - x)**2 +(y_grid - y)**2 <= r_small**2
+                roi_values = img[mask]
+                mean_val = np.mean(roi_values)
+                results.append((x, y, mean_val))
+        """
+        min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, img.argmin())
+        max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, img.argmax())
+        return x_min, y_min, min_roi.mean(), x_max, y_max, max_roi.mean()
+
+    def get_min_max_rois(self, results, centre_x, centre_y):
+        filtered_results = []
+        for x, y, mean_val in results:
+            # Distance from centre of small ROI to centre of large ROI
+            distance_to_centre = np.sqrt((x - centre_x) ** 2 + (y - centre_y) ** 2)
+            if distance_to_centre + self.r_small <= self.r_large:
+                # Filtering small ROIs to only include those that fall completely within the larger ROI
+                filtered_results.append((x, y, mean_val))
+        # Get the small ROIs containing the maximum mean and minimum mean values
+        max_mean_tuple = max(filtered_results, key=lambda item: item[2])
+        min_mean_tuple = min(filtered_results, key=lambda item: item[2])
+        return *max_mean_tuple, *min_mean_tuple
 
     def get_integral_uniformity(self, dcm):
         """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
@@ -76,107 +208,26 @@ class ACRUniformity(HazenTask):
             float: value of integral uniformity.
         """
         img = dcm.pixel_array
-        # Required pixel radius to produce ~200cm2 ROI
-        r_large = np.ceil(80 / self.ACR_obj.dx).astype(int)
-        # Required pixel radius to produce ~1cm2 ROI
-        r_small = np.ceil(np.sqrt(100 / np.pi) / self.ACR_obj.dx).astype(int)
 
-        (centre_x, centre_y), _ = self.ACR_obj.find_phantom_center(
+        centre, _ = self.ACR_obj.find_phantom_center(
             img, self.ACR_obj.dx, self.ACR_obj.dy
         )
-
-        # Dummy circular mask at centroid
-        #base_mask = ACRObject.circular_mask((centre_x, centre_y + d_void), r_small, dims)
-        #coords = np.nonzero(base_mask)  # Coordinates of mask
 
         # TODO: ensure that shifting the sampling circle centre
         # is in the correct direction by a correct factor
 
-        # List to store the results from each small ROI
-        results = []
-        height,width = img.shape
+        logger.info('Getting large ROI in image...')
+        large_roi = create_roi_at(img, self.r_large, *centre)
+        logger.info(large_roi.shape)
 
-        # Iterating through the large ROI with the small ROI and storing the results
-        for x in range(r_small, width - r_small):
-            for y in range (r_small, height - r_small):
-                y_grid, x_grid = np.ogrid[:height, :width]
-                mask = (x_grid - x)**2 +(y_grid - y)**2 <= r_small**2
-                roi_values = img[mask]
-                mean_val = np.mean(roi_values)
-                results.append((x, y, mean_val))
-
-
-        filtered_results = []
-        for x, y, mean_val in results:
-            # Distance from centre of small ROI to centre of large ROI
-            distance_to_centre = np.sqrt((x - centre_x)**2 + (y - centre_y)**2)
-            if distance_to_centre + r_small <= r_large:
-                # Filtering small ROIs to only include those that fall completely within the larger ROI
-                filtered_results.append((x, y, mean_val))
-        # Get the small ROIs containing the maximum mean and minimum mean values
-        max_mean_tuple = max(filtered_results, key = lambda item: item[2])
-        min_mean_tuple = min(filtered_results, key=lambda item: item[2])
-        max_value = max_mean_tuple[2]
-        min_value = min_mean_tuple[2]
-        x_max, y_max = max_mean_tuple[0], max_mean_tuple[1]
-        x_min, y_min = min_mean_tuple[0], min_mean_tuple[1]
+        logger.info('Getting the min and max mean ROIs in image...')
+        x_min, y_min, min_value, x_max, y_max, max_value = self.get_mean_roi_values(large_roi)
 
         # Uniformity calculation
         piu = self.calculate_uniformity(min_value, max_value)
 
         if self.report:
-            import matplotlib.pyplot as plt
-
-            fig, axes = plt.subplots(2, 1)
-            fig.set_size_inches(8, 16)
-            fig.tight_layout(pad=4)
-
-            theta = np.linspace(0, 2 * np.pi, 360)
-
-            axes[0].imshow(img)
-            axes[0].scatter(centre_x, centre_y, c="red")
-            axes[0].axis("off")
-            axes[0].set_title("Centroid Location")
-
-            axes[1].imshow(img)
-            axes[1].scatter(
-                [y_max, y_min], [x_max, x_min], c="red", marker="x"
-            )
-            axes[1].plot(
-                r_small * np.cos(theta) + y_max,
-                r_small * np.sin(theta) + x_max,
-                c="yellow",
-            )
-            axes[1].annotate(
-                "Min = " + str(np.round(min_value, 1)),
-                [y_min, x_min + 10 / self.ACR_obj.dx],
-                c="white",
-            )
-
-            axes[1].plot(
-                r_small * np.cos(theta) + y_min,
-                r_small * np.sin(theta) + x_min,
-                c="yellow",
-            )
-            axes[1].annotate(
-                "Max = " + str(np.round(max_value, 1)),
-                [y_max, x_max + 10 / self.ACR_obj.dx],
-                c="white",
-            )
-            axes[1].plot(
-                r_large * np.cos(theta) + centre_y,
-                r_large * np.sin(theta) + centre_x + 5 / self.ACR_obj.dy,
-                c="black",
-            )
-            axes[1].axis("off")
-            axes[1].set_title(
-                "Percent Integral Uniformity = " + str(np.round(piu, 2)) + "%"
-            )
-
-            img_path = os.path.realpath(
-                os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
-            )
-            fig.savefig(img_path)
-            self.report_files.append(img_path)
+            logger.info('Writing report ... ')
+            self.write_report(img, centre, (x_min, y_min, min_value), (x_max, y_max, max_value), piu, dcm)
 
         return piu
