@@ -4,7 +4,7 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid
 
 
 class ACRObject:
@@ -87,14 +87,6 @@ class ACRObject:
         logger.debug("Neither slices had a circle detected")
         return dcm_list
 
-        # if true_circle[0] > self.images[0].shape[0] // 2:
-        #     print("Performing LR orientation swap to restore correct view.")
-        #     flipped_images = [np.fliplr(image) for image in self.images]
-        #     for index, dcm in enumerate(self.dcms):
-        #         dcm.PixelData = flipped_images[index].tobytes()
-        # else:
-        #     print("LR orientation swap not required.")
-
     @staticmethod
     def determine_rotation(img):
         """Determine the rotation angle of the phantom using edge detection and the Hough transform.
@@ -149,57 +141,35 @@ class ACRObject:
 
         Args:
             img (np.ndarray): pixel array of the DICOM image.
+            dx (int): pixel array of the DICOM image.
+            dy (int): pixel array of the DICOM image.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
         """
-
-        img_blur = cv2.GaussianBlur(img, (1, 1), 0)
-        img_grad = cv2.Sobel(img_blur, 0, dx=1, dy=1)
-
-        try:
-            detected_circles = cv2.HoughCircles(
-                img_grad,
-                cv2.HOUGH_GRADIENT,
-                1,
-                param1=50,
-                param2=30,
-                minDist=int(180 / dy),
-                minRadius=int(180 / (2 * dy)),
-                maxRadius=int(200 / (2 * dx)),
-            ).flatten()
-        except AttributeError:
-            detected_circles = cv2.HoughCircles(
-                img_grad,
-                cv2.HOUGH_GRADIENT,
-                1,
-                param1=50,
-                param2=30,
-                minDist=int(180 / dy),
-                minRadius=80,
-                maxRadius=200,
-            ).flatten()
-
+        logger.info("Detecting centroid location ...")
+        detected_circles = detect_centroid(img, dx, dy)
         centre_x = round(detected_circles[0])
         centre_y = round(detected_circles[1])
         radius = round(detected_circles[2])
+        logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
         return (centre_x, centre_y), radius
 
-    def get_mask_image(self, image, mag_threshold=0.07, open_threshold=500):
+    def get_mask_image(self, image, centre, mag_threshold=0.07, open_threshold=500):
         """Create a masked pixel array. \n
         Mask an image by magnitude threshold before applying morphological opening to remove small unconnected
         features. The convex hull is calculated in order to accommodate for potential air bubbles.
 
         Args:
             image (np.ndarray): pixel array of the dicom
+            centre (tuple): x,y coordinates of the circle centre.
             mag_threshold (float, optional): magnitude threshold. Defaults to 0.07.
             open_threshold (int, optional): open threshold. Defaults to 500.
 
         Returns:
             np.ndarray: the masked image
         """
-        centre, _ = self.find_phantom_center(image, self.dx, self.dy)
         test_mask = self.circular_mask(centre, (80 // self.dx), image.shape)
         test_image = image * test_mask
         # get range of values in the mask
@@ -249,11 +219,12 @@ class ACRObject:
 
         return mask
 
-    def measure_orthogonal_lengths(self, mask, slice_index):
+    def measure_orthogonal_lengths(self, mask, cxy):
         """Compute the horizontal and vertical lengths of a mask, based on the centroid.
 
         Args:
             mask (np.ndarray): Boolean array of the image where pixel values meet threshold
+            cxy  (tuple): x,y coordinates of the circle centre.
 
         Returns:
             dict: a dictionary with the following:
@@ -267,9 +238,7 @@ class ACRObject:
                     The horizontal/vertical length of the object.
         """
         dims = mask.shape
-        (vertical, horizontal), radius = self.find_phantom_center(
-            self.slice_stack[slice_index].pixel_array, self.dx, self.dy
-        )
+        (vertical, horizontal) = cxy
 
         horizontal_start = (horizontal, 0)
         horizontal_end = (horizontal, dims[0] - 1)

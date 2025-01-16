@@ -392,21 +392,6 @@ def determine_orientation(dcm_list):
             "saggital", "coronal", "axial", or "unexpected" orientation. \n
             list of the changing ImagePositionPatient values.
     """
-    # for dcm in dcm_list:
-    #     print(dcm.InstanceNumber) # unique
-    #     print(dcm.ImagePositionPatient) # unique
-    #     # The x, y, and z coordinates of the upper left hand corner (center of the first voxel transmitted) of the image, in mm
-    #     # eg [28.364610671997, -88.268096923828, 141.94101905823]
-    #     print(dcm.ImageOrientationPatient) # common
-    #     # The direction cosines of the first row and the first column with respect to the patient.
-    #     # eg
-    #     # [1, 0, 0, 0, 1, 0]  transverse/axial
-    #     # [1, 0, 0, 0, 0, -1] coronal
-    #     # [0, 1, 0, 0, 0, -1] sagittal
-    #     print(dcm.PixelSpacing) # common
-    #     # Physical distance in the patient between the center of each pixel, specified by a numeric pair - adjacent row spacing (dx) (delimiter) adjacent column spacing (dy) in mm.
-    #     print(dcm.SliceThickness) # common
-    #     # Nominal slice thickness, in mm
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
@@ -487,15 +472,125 @@ def detect_circle(img, dx):
     )
     detected_circles = cv.HoughCircles(
         normalised_img,
-        cv.HOUGH_GRADIENT,
+        cv.HOUGH_GRADIENT_ALT,
         1,
-        param1=50,
-        param2=30,
-        minDist=int(10 / dx),  # used to be 180 / dx
-        minRadius=int(5 / dx),
-        maxRadius=int(16 / dx),
+        param1=300,
+        param2=0.9,
+        minDist=int(10 / dx),
+        minRadius=int(5 / (2 * dx)),
+        maxRadius=int(16 / (2 * dx)),
     )
+    if detected_circles is None:
+        detected_circles = cv.HoughCircles(
+            normalised_img,
+            cv.HOUGH_GRADIENT,
+            1,
+            param1=50,
+            param2=30,
+            minDist=int(10 / dx),  # used to be 180 / dx
+            minRadius=int(5 / dx),
+            maxRadius=int(16 / dx),
+        )
     return detected_circles
+
+
+def detect_centroid(img, dx, dy):
+    """Attempt to detect circle locations using cv2.HoughCircles().
+
+    Args:
+        img (np.ndarray): pixel array containing the data to perform circle detection on
+        dx (int): The coordinates of the point to rotate
+        dy (int, optional): The amplitude threshold for peak identification. Defaults to 1.
+
+    Returns:
+        np.ndarray: Flattened array of tuples
+
+    """
+    img_blur = cv.GaussianBlur(img, (1, 1), 0)
+    img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
+    #debug_image_sample(img_grad)
+
+    try:
+        detected_circles = cv.HoughCircles(
+            img_grad,
+            cv.HOUGH_GRADIENT_ALT,
+            1,
+            param1=300,
+            param2=0.9,
+            minDist=int(180 / dy),
+            minRadius=int(180 / (2 * dy)),
+            maxRadius=int(200 / (2 * dx)),
+        )
+        if detected_circles is None:
+            detected_circles = cv.HoughCircles(
+                img_grad,
+                cv.HOUGH_GRADIENT,
+                1,
+                param1=50,
+                param2=30,
+                minDist=int(180 / dy),
+                minRadius=int(180 / (2 * dy)),
+                maxRadius=int(200 / (2 * dx)),
+            )
+    except AttributeError as e:
+        detected_circles = cv.HoughCircles(
+            img_grad,
+            cv.HOUGH_GRADIENT_ALT,
+            1,
+            param1=300,
+            param2=0.9,
+            minDist=int(180 / dy),
+            minRadius=80,
+            maxRadius=200,
+        )
+        if detected_circles is None:
+            detected_circles = cv.HoughCircles(
+                img_grad,
+                cv.HOUGH_GRADIENT,
+                1,
+                param1=50,
+                param2=30,
+                minDist=int(180 / dy),
+                minRadius=80,
+                maxRadius=200,
+            )
+    return detected_circles.flatten()
+
+
+def debug_image_sample(img, out_path=None):
+    """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
+    Use this function to force a display of an intermediate numpy image array to visually inspect results.
+
+    Args:
+        img (np.ndarray): pixel array containing the data to display
+        out_path (str): file path where you would like to save a copy of the image
+
+    """
+    snapshot = DebugSnapshotShow(img, 'L').image
+    if not out_path is None:
+        snapshot.save(out_path, format="PNG", dpi=(96, 96))
+
+
+class DebugSnapshotShow:
+    """
+    This class manages presentation of an image (file path or instance of PIL.Image. This class is used as if it were
+    a function.
+    See the `Pillow ImageShow Documentation <https://pillow.readthedocs.io/en/stable/reference/ImageShow.html>`_.
+    You will need to install Pillow/PIL library and dependencies separately.
+    This class is meant to assist during debugging of image processing steps.
+    """
+
+    def __init__(self, image_instance, target_mode=None):
+        from PIL import Image, ImageShow
+        if isinstance(image_instance, str):
+            image_instance = Image.open(image_instance)
+        elif isinstance(image_instance, np.ndarray):
+            image_instance = Image.fromarray(image_instance)
+        if not target_mode is None:
+            image_instance.convert(target_mode)
+        presenter = ImageShow.EogViewer()
+        presenter.show_image(image_instance)
+        self.image = image_instance
 
 
 class Rod:
