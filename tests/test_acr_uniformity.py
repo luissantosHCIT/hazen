@@ -39,4 +39,6 @@ class TestACRUniformitySiemens(unittest.TestCase):
 
 class TestACRUniformityGE(TestACRUniformitySiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    piu = 84.23
+    piu = 84.07
+
+# TODO: investigate performance of task and see if there are optimization opportunities.

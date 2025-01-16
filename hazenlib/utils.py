@@ -472,14 +472,25 @@ def detect_circle(img, dx):
     )
     detected_circles = cv.HoughCircles(
         normalised_img,
-        cv.HOUGH_GRADIENT,
+        cv.HOUGH_GRADIENT_ALT,
         1,
-        param1=50,
-        param2=30,
-        minDist=int(10 / dx),  # used to be 180 / dx
-        minRadius=int(5 / dx),
-        maxRadius=int(16 / dx),
+        param1=300,
+        param2=0.9,
+        minDist=int(10 / dx),
+        minRadius=int(5 / (2 * dx)),
+        maxRadius=int(16 / (2 * dx)),
     )
+    if detected_circles is None:
+        detected_circles = cv.HoughCircles(
+            normalised_img,
+            cv.HOUGH_GRADIENT,
+            1,
+            param1=50,
+            param2=30,
+            minDist=int(10 / dx),  # used to be 180 / dx
+            minRadius=int(5 / dx),
+            maxRadius=int(16 / dx),
+        )
     return detected_circles
 
 
@@ -497,6 +508,7 @@ def detect_centroid(img, dx, dy):
     """
     img_blur = cv.GaussianBlur(img, (1, 1), 0)
     img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
+    #debug_image_sample(img_grad)
 
     try:
         detected_circles = cv.HoughCircles(
@@ -542,7 +554,43 @@ def detect_centroid(img, dx, dy):
                 minRadius=80,
                 maxRadius=200,
             )
-    return detected_circles
+    return detected_circles.flatten()
+
+
+def debug_image_sample(img, out_path=None):
+    """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
+    Use this function to force a display of an intermediate numpy image array to visually inspect results.
+
+    Args:
+        img (np.ndarray): pixel array containing the data to display
+        out_path (str): file path where you would like to save a copy of the image
+
+    """
+    snapshot = DebugSnapshotShow(img, 'L').image
+    if not out_path is None:
+        snapshot.save(out_path, format="PNG", dpi=(96, 96))
+
+
+class DebugSnapshotShow:
+    """
+    This class manages presentation of an image (file path or instance of PIL.Image. This class is used as if it were
+    a function.
+    See the `Pillow ImageShow Documentation <https://pillow.readthedocs.io/en/stable/reference/ImageShow.html>`_.
+    You will need to install Pillow/PIL library and dependencies separately.
+    This class is meant to assist during debugging of image processing steps.
+    """
+
+    def __init__(self, image_instance, target_mode=None):
+        from PIL import Image, ImageShow
+        if isinstance(image_instance, str):
+            image_instance = Image.open(image_instance)
+        elif isinstance(image_instance, np.ndarray):
+            image_instance = Image.fromarray(image_instance)
+        if not target_mode is None:
+            image_instance.convert(target_mode)
+        presenter = ImageShow.EogViewer()
+        presenter.show_image(image_instance)
+        self.image = image_instance
 
 
 class Rod:
