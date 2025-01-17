@@ -23,7 +23,7 @@ import numpy as np
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_roi_at, create_roi_with_numpy_index
+from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, debug_image_sample
 from hazenlib import logger
 
 
@@ -124,6 +124,19 @@ class ACRUniformity(HazenTask):
         self.report_files.append(img_path)
 
     def calculate_uniformity(self, min_value, max_value):
+        """Calculates the percent integral uniformity (PIU) using formula `PIU = 100 * (1 - (max - min) / (max + min))`.
+
+        It is broken down into constituent elements to shift the math to numpy as much as possible to squeeze
+        performance as much as possible.
+
+        Args:
+            min_value (int): minimum mean value.
+            max_value (int): maximum mean value.
+
+        Returns:
+            float: value of integral uniformity.
+
+        """
         subtraction = np.subtract(max_value, min_value)
         addition = np.add(max_value, min_value)
         division = np.divide(subtraction, addition)
@@ -167,32 +180,9 @@ class ACRUniformity(HazenTask):
                 *. This is the region of highest signal.
 
         """
-        # Iterating through the large ROI with the small ROI and storing the results
-        """
-        for x in range(r_small, width - r_small):
-            for y in range (r_small, height - r_small):
-                y_grid, x_grid = np.ogrid[:height, :width]
-                mask = (x_grid - x)**2 +(y_grid - y)**2 <= r_small**2
-                roi_values = img[mask]
-                mean_val = np.mean(roi_values)
-                results.append((x, y, mean_val))
-        """
         min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, img.argmin())
         max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, img.argmax())
         return x_min, y_min, min_roi.mean(), x_max, y_max, max_roi.mean()
-
-    def get_min_max_rois(self, results, centre_x, centre_y):
-        filtered_results = []
-        for x, y, mean_val in results:
-            # Distance from centre of small ROI to centre of large ROI
-            distance_to_centre = np.sqrt((x - centre_x) ** 2 + (y - centre_y) ** 2)
-            if distance_to_centre + self.r_small <= self.r_large:
-                # Filtering small ROIs to only include those that fall completely within the larger ROI
-                filtered_results.append((x, y, mean_val))
-        # Get the small ROIs containing the maximum mean and minimum mean values
-        max_mean_tuple = max(filtered_results, key=lambda item: item[2])
-        min_mean_tuple = min(filtered_results, key=lambda item: item[2])
-        return *max_mean_tuple, *min_mean_tuple
 
     def get_integral_uniformity(self, dcm):
         """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
@@ -222,6 +212,8 @@ class ACRUniformity(HazenTask):
 
         logger.info('Getting the min and max mean ROIs in image...')
         x_min, y_min, min_value, x_max, y_max, max_value = self.get_mean_roi_values(large_roi)
+        logger.info(f'Mean Min ROI => ({x_min}, {y_min}) = {min_value}')
+        logger.info(f'Mean Max ROI => ({x_max}, {y_max}) = {max_value}')
 
         # Uniformity calculation
         piu = self.calculate_uniformity(min_value, max_value)

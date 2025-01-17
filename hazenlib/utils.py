@@ -557,20 +557,38 @@ def detect_centroid(img, dx, dy):
     return detected_circles.flatten()
 
 
-def find_element_coordinate(arr, argx, width):
-    return np.divmod(argx, width)
-
-
 def create_roi_at(img, radius, x_coord, y_coord):
+    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
+    math operations.
+
+    Args:
+        img (np.ndarray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
     height, width = img.shape
     y_grid, x_grid = np.ogrid[:height, :width]
     mask = (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
-    masked_img = img.copy()
-    masked_img[~mask] = 0
+    masked_img = np.ma.masked_array(img, mask=~mask, fill_value=0)
     return masked_img
 
 
 def create_roi_with_numpy_index(img, radius, argx):
+    """Wrapper around :py:func:`create_roi_at` meant to use flat element indices and return an roi centered around
+    this element.
+
+    Args:
+        img (np.ndarray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        argx (int): index to nd.array element if the array was flattened. Example, value from argmax().
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
     height, width = img.shape
     x_coord, y_coord = np.divmod(argx, width)
     return create_roi_at(img, radius, x_coord, y_coord), x_coord, y_coord
@@ -585,9 +603,9 @@ def debug_image_sample(img, out_path=None):
         out_path (str): file path where you would like to save a copy of the image
 
     """
-    snapshot = DebugSnapshotShow(img, 'L').image
+    snapshot = DebugSnapshotShow(img).image
     if not out_path is None:
-        snapshot.save(out_path, format="PNG", dpi=(96, 96))
+        snapshot.save(out_path, format="PNG", dpi=(300, 300))
 
 
 class DebugSnapshotShow:
@@ -598,15 +616,14 @@ class DebugSnapshotShow:
     You will need to install Pillow/PIL library and dependencies separately.
     This class is meant to assist during debugging of image processing steps.
     """
-
     def __init__(self, image_instance, target_mode=None):
         from PIL import Image, ImageShow
         if isinstance(image_instance, str):
             image_instance = Image.open(image_instance)
-        elif isinstance(image_instance, np.ndarray):
+        elif isinstance(image_instance, np.ndarray) or isinstance(image_instance, np.ma.MaskedArray):
+            image_instance = (image_instance - image_instance.min()) / (image_instance.max() - image_instance.min())
+            image_instance = (image_instance * 255).astype(np.uint8)
             image_instance = Image.fromarray(image_instance)
-        if not target_mode is None:
-            image_instance.convert(target_mode)
         presenter = ImageShow.EogViewer()
         presenter.show_image(image_instance)
         self.image = image_instance
