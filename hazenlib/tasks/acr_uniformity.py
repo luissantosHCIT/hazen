@@ -19,11 +19,16 @@ yassine.azma@rmh.nhs.uk
 import os
 import sys
 import traceback
+
+import cv2
 import numpy as np
+import scipy.signal
+from scipy.signal import convolve2d
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, debug_image_sample
+from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, debug_image_sample, compute_radius_from_area, \
+    create_roi_mask, create_roi_kernel
 from hazenlib import logger
 
 
@@ -35,9 +40,16 @@ class ACRUniformity(HazenTask):
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
         # Required pixel radius to produce ~200cm2 ROI
-        self.r_large = np.ceil(np.divide(80, self.ACR_obj.dx)).astype(int)
+        self.r_large = compute_radius_from_area(200, self.ACR_obj.dx)
         # Required pixel radius to produce ~1cm2 ROI
-        self.r_small = np.ceil(np.divide(np.sqrt(np.divide(100, np.pi)), self.ACR_obj.dx)).astype(int)
+        self.r_small = compute_radius_from_area(1, self.ACR_obj.dx)
+        # Kernel we can use to convolve on input array to obtain an ROI mean
+        self.r_small_kernel = create_roi_kernel(self.r_small)
+        logger.info(f'Generated 2D circular kernel for target => \n{self.r_small_kernel}')
+        # Required pixel radius to produce ~200cm2 ROI - 1cm to ensure small rois live fully within large ROI
+        self.r_large_filter = self.r_large - self.r_small
+        # Offset used when adding labels to plots. They display 10 mm to the bottom and right of the ROI
+        self.label_x_offset = np.ceil(np.divide(10, self.ACR_obj.dx))
 
     def run(self) -> dict:
         """Main function for performing uniformity measurement using slice 7 from the ACR phantom image set.
@@ -93,7 +105,7 @@ class ACRUniformity(HazenTask):
         )
         axes[1].annotate(
             "Min = " + str(np.round(min_value, 1)),
-            [y_min, x_min + 10 / self.ACR_obj.dx],
+            [y_min, x_min + self.label_x_offset],
             c="white",
         )
 
@@ -104,12 +116,12 @@ class ACRUniformity(HazenTask):
         )
         axes[1].annotate(
             "Max = " + str(np.round(max_value, 1)),
-            [y_max, x_max + 10 / self.ACR_obj.dx],
+            [y_max, x_max + self.label_x_offset],
             c="white",
         )
         axes[1].plot(
-            self.r_large * np.cos(theta) + centre_y,
-            self.r_large * np.sin(theta) + centre_x + 5 / self.ACR_obj.dy,
+            self.r_large * np.cos(theta) + centre_x,
+            self.r_large * np.sin(theta) + centre_y,
             c="black",
         )
         axes[1].axis("off")
@@ -143,7 +155,7 @@ class ACRUniformity(HazenTask):
         fraction = np.subtract(1, division)
         return np.multiply(100, fraction)
 
-    def get_mean_roi_values(self, img):
+    def get_mean_roi_values(self, img, search_space_mask=None):
         """
         This method gets the mean small rois for the areas of minimum and maximum intensities.
 
@@ -154,34 +166,65 @@ class ACRUniformity(HazenTask):
             #. Display slice location 7.
             #. Place a large, circular region-of-interest (ROI) on the image as shown in Figure 15.
                 *. The area of the ROI depends on whether the large (200 cm2) or medium (160 cm2) phantom
-                was scanned (Table 4).
+                    was scanned (Table 4).
                 *. This large ROI defines the boundary of the region in which the image uniformity is measured.
                 *. Although the mean pixel intensity inside this ROI is not needed for the uniformity test, it is
-                used in the percent signal ghosting test (section 6.0), so it should be noted.
+                    used in the percent signal ghosting test (section 6.0), so it should be noted.
             #. Set the display window to its minimum, and lower the level until the entire area inside the large ROI is
             white.
                 *. The goal now is to raise the level slowly until a small, roughly 1 cm2 region of dark pixels
-                develops inside the ROI. This is the region of lowest signal in the large ROI.
+                    develops inside the ROI. This is the region of lowest signal in the large ROI.
                 *. Sometimes more than one region of dark pixels will appear. In that case, focus attention on the
-                largest dark region.
+                    largest dark region.
                 *. In some cases, rather than having a well-defined dark region, one or more wide, poorly defined
-                dark areas or areas of mixed black and white pixels are apparent.
+                    dark areas or areas of mixed black and white pixels are apparent.
                 *. In that case, make a visual estimate of the location of the darkest 1 cm2 portion of the largest
-                dark area should be made.
+                    dark area should be made.
             #. Place a 1 cm2 circular ROI on the low-signal region identified in step 3.
                 *. If measuring in the Medium phantom be sure that this ROI does not include any of the notch at
                 the top of the phantom.
                 *. Figures 16a and 17a show what typical Large and Medium phantom images look like at this
-                point.
+                    point.
                 *. Record the mean pixel value for this 1 cm2 ROI. This is the measured low-signal value.
                 *. If there is uncertainty about where to place the ROI because there is no single obviously darkest
                 location, try several locations and select the one having the lowest mean pixel value.
             #. Raise the level until all but a small, roughly 1 cm2 region of white pixels remains inside the large ROI.
                 *. This is the region of highest signal.
+                *. Sometimes more than 1 region of white pixels will remain.
+                    In that case, focus attention on the largest white region. It can happen that rather than having a
+                    well-defined white region, one ends up with 1 or more diffuse areas of mixed black and white pixels.
+                    In that case, make a best estimate of the location of the brightest 1 cm2 portion of the largest
+                    bright area.
+            #. Place a 1 cm2 circular ROI on the high-signal region identified in step 5.
+                *. Record the average pixel value for this 1 cm2 ROI. This is the measured high-signal value.
+                *. If there is uncertainty about where to place the ROI because there is no single obviously
+                    brightest location, try several locations and select the one having the highest mean pixel value.
+
+        Args:
+            img (np.ma.MaskedArray): Large ROI pixel data.
+            search_space_mask (np.ndarray): Mask delineating any restrictions on the search space used to look for the
+                minima and maxima.
+
+        Returns:
+            float: value of integral uniformity.
 
         """
-        min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, img.argmin())
-        max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, img.argmax())
+        # First, let's make sure we zero out the periphery of our large ROI so that the convolution can ignore it.
+        mask = img.mask
+        large_roi = img.copy()
+        large_roi[mask] = 0
+        # Convolve the large ROI with our kernel.
+        # See https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_morphological_ops/py_morphological_ops.html
+        mean_large_roi = convolve2d(large_roi, self.r_small_kernel, mode='same')
+        # We want to bias the valid centers to be fully within the large ROI.
+        # Per the ACR example, it looks like it should be biased by one radius (or two radii in our case due to implementation).
+        valid_search_mask = mask if search_space_mask is None else search_space_mask
+        mean_large_roi = np.ma.masked_array(mean_large_roi, mask=valid_search_mask, fill_value=0)
+        # Place small ROIs in the locations with the minimum and maximum value in the mean large ROI.
+        # The placement is in the original image for convenience, but the minima and maxima in the mean large roi
+        # should reflect the 1cm2 roi mean already.
+        min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmin())
+        max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmax())
         return x_min, y_min, min_roi.mean(), x_max, y_max, max_roi.mean()
 
     def get_integral_uniformity(self, dcm):
@@ -199,27 +242,26 @@ class ACRUniformity(HazenTask):
         """
         img = dcm.pixel_array
 
-        centre, _ = self.ACR_obj.find_phantom_center(
+        (center_x, center_y), _ = self.ACR_obj.find_phantom_center(
             img, self.ACR_obj.dx, self.ACR_obj.dy
         )
-
-        # TODO: ensure that shifting the sampling circle centre
-        # is in the correct direction by a correct factor
+        logger.info(f'Adjusted centroid to ({center_x}, {center_y})')
 
         logger.info('Getting large ROI in image...')
-        large_roi = create_roi_at(img, self.r_large, *centre)
-        logger.info(large_roi.shape)
+        large_roi = create_roi_at(img, self.r_large, center_x, center_y)
+        large_roi_valid_space = create_roi_mask(img, self.r_large_filter, center_x, center_y)
 
         logger.info('Getting the min and max mean ROIs in image...')
-        x_min, y_min, min_value, x_max, y_max, max_value = self.get_mean_roi_values(large_roi)
+        x_min, y_min, min_value, x_max, y_max, max_value = self.get_mean_roi_values(large_roi, ~large_roi_valid_space)
         logger.info(f'Mean Min ROI => ({x_min}, {y_min}) = {min_value}')
         logger.info(f'Mean Max ROI => ({x_max}, {y_max}) = {max_value}')
 
         # Uniformity calculation
         piu = self.calculate_uniformity(min_value, max_value)
+        logger.info(f'PIU[{piu}] = 100 * (1 - ({max_value} - {min_value}) / ({max_value} + {min_value}))')
 
         if self.report:
             logger.info('Writing report ... ')
-            self.write_report(img, centre, (x_min, y_min, min_value), (x_max, y_max, max_value), piu, dcm)
+            self.write_report(img, (center_x, center_y), (x_min, y_min, min_value), (x_max, y_max, max_value), piu, dcm)
 
         return piu

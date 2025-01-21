@@ -557,12 +557,29 @@ def detect_centroid(img, dx, dy):
     return detected_circles.flatten()
 
 
-def create_roi_at(img, radius, x_coord, y_coord):
-    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
-    math operations.
+def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
+    """Calculates the radius of an ROI given an area. The radius is in pixel count. Meaning, if we want to get the
+    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution = 0.5`,
+    and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the resolution to yield
+    the radius in pixel count units.
 
     Args:
-        img (np.ndarray): pixel array containing the data where to generate roi
+        area (int): Area of ROI that will be generated with the radius calculated in this function
+        voxel_resolution (float): voxel/pixel resolution as given by the PixelSpacing attribute in the DICOM header.
+            This is typically in millimeter units.
+        conversion_value (int): Value to use to convert the radius from area units (cm, etc) to mm.
+
+    Returns:
+        int: Integer radius length.
+    """
+    return np.ceil(np.divide(np.sqrt(np.divide(area, np.pi)) * conversion_value, voxel_resolution)).astype(int)
+
+
+def create_roi_mask(img, radius, x_coord, y_coord):
+    """Generates a mask for an roi at the given coordinates
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
         radius (int): Integer radius of the circular roi
         x_coord (int): x coordinate of the center of the roi
         y_coord (int): y coordinate of the center of the roi
@@ -572,7 +589,37 @@ def create_roi_at(img, radius, x_coord, y_coord):
     """
     height, width = img.shape
     y_grid, x_grid = np.ogrid[:height, :width]
-    mask = (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
+    return (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
+
+
+def create_roi_kernel(radius):
+    """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
+
+    Args:
+        radius (int): Integer radius of the circular roi
+
+    Returns:
+        np.ndarray: Arrays of 1s and 0s comprising the circular kernel to use for convolution.
+    """
+    diameter = (radius * 2) + 1
+    kernel_arr = np.zeros((diameter, diameter), dtype=np.bool_)
+    return create_roi_mask(kernel_arr, radius, radius, radius).astype(np.int_)
+
+
+def create_roi_at(img, radius, x_coord, y_coord):
+    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
+    math operations.
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    mask = create_roi_mask(img, radius, x_coord, y_coord)
     masked_img = np.ma.masked_array(img, mask=~mask, fill_value=0)
     return masked_img
 
