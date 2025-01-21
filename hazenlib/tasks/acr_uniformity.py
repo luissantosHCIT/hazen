@@ -20,14 +20,12 @@ import os
 import sys
 import traceback
 
-import cv2
 import numpy as np
-import scipy.signal
 from scipy.signal import convolve2d
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, debug_image_sample, compute_radius_from_area, \
+from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, compute_radius_from_area, \
     create_roi_mask, create_roi_kernel
 from hazenlib import logger
 
@@ -221,11 +219,15 @@ class ACRUniformity(HazenTask):
         valid_search_mask = mask if search_space_mask is None else search_space_mask
         mean_large_roi = np.ma.masked_array(mean_large_roi, mask=valid_search_mask, fill_value=0)
         # Place small ROIs in the locations with the minimum and maximum value in the mean large ROI.
-        # The placement is in the original image for convenience, but the minima and maxima in the mean large roi
-        # should reflect the 1cm2 roi mean already.
+        # The minima and maxima in the mean large roi should reflect the 1cm2 weighted roi sum already.
+        # Divide by number of elements that contributed to this weighted sum to obtain real mean.
+        elements_in_mask = self.r_small_kernel.sum()
+        min_mean = mean_large_roi.min() / elements_in_mask
+        max_mean = mean_large_roi.max() / elements_in_mask
+        # Get x and y coordinates of the corresponding locations in the original image.
         min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmin())
         max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmax())
-        return x_min, y_min, min_roi.mean(), x_max, y_max, max_roi.mean()
+        return x_min, y_min, min_mean, x_max, y_max, max_mean
 
     def get_integral_uniformity(self, dcm):
         """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
