@@ -219,13 +219,13 @@ class ACRUniformity(HazenTask):
         # We want to bias the valid centers to be fully within the large ROI.
         # Per the ACR example, it looks like it should be biased by one radius (or two radii in our case due to implementation).
         valid_search_mask = mask if search_space_mask is None else search_space_mask
-        mean_large_roi = np.ma.masked_array(mean_large_roi, mask=valid_search_mask, fill_value=0)
+        valid_mean_large_roi = np.ma.masked_array(mean_large_roi, mask=valid_search_mask, fill_value=0)
         # Find mean (which is already averaged) and x and y coordinates of that point in the averaged data.
         # Do this for both the minimum and maximum
-        min_mean = mean_large_roi.min()
-        x_min, y_min = detect_roi_center(mean_large_roi, mean_large_roi.argmin())
-        max_mean = mean_large_roi.max()
-        x_max, y_max = detect_roi_center(mean_large_roi, mean_large_roi.argmax())
+        min_mean = valid_mean_large_roi.min()
+        x_min, y_min = detect_roi_center(mean_large_roi, valid_mean_large_roi.argmin())
+        max_mean = valid_mean_large_roi.max()
+        x_max, y_max = detect_roi_center(mean_large_roi, valid_mean_large_roi.argmax())
         return x_min, y_min, min_mean, x_max, y_max, max_mean
 
     def get_integral_uniformity(self, dcm):

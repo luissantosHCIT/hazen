@@ -20,9 +20,9 @@ REGEX_SCRUBNAME = '\\^\\\\`\\{\\}\\[\\]\\(\\)\\!\\$\'\\/\\ \\_\\:\\,\\-\\&\\=\\.
 
 def scrub(dirtyString, matchCharacters, join_str='_'):
     """
-    This function provides the core functionality for scrubbing strings for bad characters. This is the most useful
-    function in the core library since it provides a security hardening benefit as well. Ideally, user input should get
-    scrubbed with this function or derivatives. This functionality is mediated by `re.split
+    This function provides the core functionality for scrubbing strings for bad characters. It provides a security
+    hardening benefit as well. Ideally, user input should get scrubbed with this function or derivatives.
+    This functionality is mediated by `re.split
     <https://docs.python.org/3/library/re.html?highlight=re%20split#re.split>`_.
 
     :param dirtyString: Untrustworthy string that needs to be stripped of bad characters such as newlines.
