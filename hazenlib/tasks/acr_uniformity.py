@@ -22,11 +22,12 @@ import traceback
 
 import numpy as np
 from scipy.signal import convolve2d
+from matplotlib import pyplot as plt
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_roi_at, create_roi_with_numpy_index, compute_radius_from_area, \
-    create_roi_mask, create_roi_kernel
+from hazenlib.utils import create_roi_at, compute_radius_from_area, \
+    create_roi_mask, create_roi_average_kernel, detect_roi_center
 from hazenlib import logger
 
 
@@ -42,7 +43,7 @@ class ACRUniformity(HazenTask):
         # Required pixel radius to produce ~1cm2 ROI
         self.r_small = compute_radius_from_area(1, self.ACR_obj.dx)
         # Kernel we can use to convolve on input array to obtain an ROI mean
-        self.r_small_kernel = create_roi_kernel(self.r_small)
+        self.r_small_kernel = create_roi_average_kernel(self.r_small)
         logger.info(f'Generated 2D circular kernel for target => \n{self.r_small_kernel}')
         # Required pixel radius to produce ~200cm2 ROI - 1cm to ensure small rois live fully within large ROI
         self.r_large_filter = self.r_large - self.r_small
@@ -76,7 +77,6 @@ class ACRUniformity(HazenTask):
         return results
 
     def write_report(self, img, centre, min_roi, max_roi, piu, dcm):
-        import matplotlib.pyplot as plt
         (centre_x, centre_y) = centre
         x_max, y_max, max_value = max_roi
         x_min, y_min, min_value = min_roi
@@ -218,15 +218,12 @@ class ACRUniformity(HazenTask):
         # Per the ACR example, it looks like it should be biased by one radius (or two radii in our case due to implementation).
         valid_search_mask = mask if search_space_mask is None else search_space_mask
         mean_large_roi = np.ma.masked_array(mean_large_roi, mask=valid_search_mask, fill_value=0)
-        # Place small ROIs in the locations with the minimum and maximum value in the mean large ROI.
-        # The minima and maxima in the mean large roi should reflect the 1cm2 weighted roi sum already.
-        # Divide by number of elements that contributed to this weighted sum to obtain real mean.
-        elements_in_mask = self.r_small_kernel.sum()
-        min_mean = mean_large_roi.min() / elements_in_mask
-        max_mean = mean_large_roi.max() / elements_in_mask
-        # Get x and y coordinates of the corresponding locations in the original image.
-        min_roi, x_min, y_min = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmin())
-        max_roi, x_max, y_max = create_roi_with_numpy_index(img, self.r_small, mean_large_roi.argmax())
+        # Find mean (which is already averaged) and x and y coordinates of that point in the averaged data.
+        # Do this for both the minimum and maximum
+        min_mean = mean_large_roi.min()
+        x_min, y_min = detect_roi_center(mean_large_roi, mean_large_roi.argmin())
+        max_mean = mean_large_roi.max()
+        x_max, y_max = detect_roi_center(mean_large_roi, mean_large_roi.argmax())
         return x_min, y_min, min_mean, x_max, y_max, max_mean
 
     def get_integral_uniformity(self, dcm):

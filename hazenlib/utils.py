@@ -606,6 +606,24 @@ def create_roi_kernel(radius):
     return create_roi_mask(kernel_arr, radius, radius, radius).astype(np.int_)
 
 
+def create_roi_average_kernel(radius):
+    """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
+    Uses :py:func:`create_roi_kernel` to generate the initial kernel mask.
+
+    avg_kernel = kernel / kernel.sum()
+
+    Convoluting against this kernel should yield
+
+    Args:
+        radius (int): Integer radius of the circular roi
+
+    Returns:
+        np.ndarray: Arrays of 1s and 0s comprising the circular kernel to use for convolution.
+    """
+    mask = create_roi_kernel(radius)
+    return mask / mask.sum()
+
+
 def create_roi_at(img, radius, x_coord, y_coord):
     """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
     math operations.
@@ -636,9 +654,23 @@ def create_roi_with_numpy_index(img, radius, argx):
     Returns:
         np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
     """
-    height, width = img.shape
-    x_coord, y_coord = np.divmod(argx, width)
+    x_coord, y_coord = detect_roi_center(img, argx)
     return create_roi_at(img, radius, x_coord, y_coord), x_coord, y_coord
+
+
+def detect_roi_center(img, argx):
+    """Finds the x and y coordinates of the center of an roi given the flat index in the numpy array!
+
+    Args:
+        img (np.ndarray): pixel array containing the data where to generate roi
+        argx (int): index to nd.array element if the array was flattened. Example, value from argmax().
+
+    Returns:
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+    """
+    height, width = img.shape
+    return np.divmod(argx, width)
 
 
 def debug_image_sample(img, out_path=None):

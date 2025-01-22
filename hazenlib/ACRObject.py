@@ -45,6 +45,7 @@ class ACRObject:
         if orientation == "unexpected":
             # TODO: error out for now,
             # in future allow manual override based on optional CLI args
+            logger.error(f'Unknown orientation detected => {orientation}')
             sys.exit()
 
         logger.info("image orientation is %s", orientation)
