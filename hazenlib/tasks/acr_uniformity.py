@@ -26,8 +26,8 @@ from matplotlib import pyplot as plt
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_roi_at, compute_radius_from_area, \
-    create_roi_mask, create_roi_average_kernel, detect_roi_center
+from hazenlib.utils import create_circular_mask_at, compute_radius_from_area, \
+    create_circular_mask, create_circular_mean_kernel, detect_roi_center
 from hazenlib import logger
 
 
@@ -43,7 +43,7 @@ class ACRUniformity(HazenTask):
         # Required pixel radius to produce ~1cm2 ROI
         self.r_small = compute_radius_from_area(1, self.ACR_obj.dx)
         # Kernel we can use to convolve on input array to obtain an ROI mean
-        self.r_small_kernel = create_roi_average_kernel(self.r_small)
+        self.r_small_kernel = create_circular_mean_kernel(self.r_small)
         logger.info(f'Generated 2D circular kernel for target => \n{self.r_small_kernel}')
         # Required pixel radius to produce ~200cm2 ROI - 1cm to ensure small rois live fully within large ROI
         self.r_large_filter = self.r_large - self.r_small
@@ -54,7 +54,9 @@ class ACRUniformity(HazenTask):
         """Main function for performing uniformity measurement using slice 7 from the ACR phantom image set.
 
         Returns:
-            dict: results are returned in a standardised dictionary structure specifying the task name, input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs, optionally path to the generated images for visualisation
+            dict: results are returned in a standardised dictionary structure specifying the task name, input DICOM
+                Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs, optionally path
+                to the generated images for visualisation
         """
         # Initialise results dictionary
         results = self.init_result_dict()
@@ -247,8 +249,8 @@ class ACRUniformity(HazenTask):
         logger.info(f'Adjusted centroid to ({center_x}, {center_y})')
 
         logger.info('Getting large ROI in image...')
-        large_roi = create_roi_at(img, self.r_large, center_x, center_y)
-        large_roi_valid_space = create_roi_mask(img, self.r_large_filter, center_x, center_y)
+        large_roi = create_circular_mask_at(img, self.r_large, center_x, center_y)
+        large_roi_valid_space = create_circular_mask(img, self.r_large_filter, center_x, center_y)
 
         logger.info('Getting the min and max mean ROIs in image...')
         x_min, y_min, min_value, x_max, y_max, max_value = self.get_mean_roi_values(large_roi, ~large_roi_valid_space)

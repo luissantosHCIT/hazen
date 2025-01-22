@@ -1,4 +1,5 @@
 import os
+import re
 import cv2 as cv
 import pydicom
 import imutils
@@ -12,6 +13,26 @@ import hazenlib.exceptions as exc
 from hazenlib.logger import logger
 
 matplotlib.use("Agg")
+
+
+REGEX_SCRUBNAME = '\\^\\\\`\\{\\}\\[\\]\\(\\)\\!\\$\'\\/\\ \\_\\:\\,\\-\\&\\=\\.\\*\\+\\;\\#'  #: Regex to match for these dirty characters.
+
+
+def scrub(dirtyString, matchCharacters, join_str='_'):
+    """
+    This function provides the core functionality for scrubbing strings for bad characters. This is the most useful
+    function in the core library since it provides a security hardening benefit as well. Ideally, user input should get
+    scrubbed with this function or derivatives. This functionality is mediated by `re.split
+    <https://docs.python.org/3/library/re.html?highlight=re%20split#re.split>`_.
+
+    :param dirtyString: Untrustworthy string that needs to be stripped of bad characters such as newlines.
+    :param matchCharacters: Iterable of characters to scrub out of the string (typically a string of such characters)
+    :param join_str: String used in-between clean fragments. Example, te\\nst => te_st if this parameter is _
+    :return: Reconstructed clean string.
+    """
+    pattern = re.compile('[{}]'.format(matchCharacters))
+    target_string = re.split(pattern, str(dirtyString))
+    return join_str.join(target_string)
 
 
 def get_dicom_files(folder: str, sort=False) -> list:
@@ -575,7 +596,7 @@ def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
     return np.ceil(np.divide(np.sqrt(np.divide(area, np.pi)) * conversion_value, voxel_resolution)).astype(int)
 
 
-def create_roi_mask(img, radius, x_coord, y_coord):
+def create_circular_mask(img, radius, x_coord, y_coord):
     """Generates a mask for an roi at the given coordinates
 
     Args:
@@ -592,7 +613,7 @@ def create_roi_mask(img, radius, x_coord, y_coord):
     return (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
 
 
-def create_roi_kernel(radius):
+def create_circular_kernel(radius):
     """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
 
     Args:
@@ -603,10 +624,10 @@ def create_roi_kernel(radius):
     """
     diameter = (radius * 2) + 1
     kernel_arr = np.zeros((diameter, diameter), dtype=np.bool_)
-    return create_roi_mask(kernel_arr, radius, radius, radius).astype(np.int_)
+    return create_circular_mask(kernel_arr, radius, radius, radius).astype(np.int_)
 
 
-def create_roi_average_kernel(radius):
+def create_circular_mean_kernel(radius):
     """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
     Uses :py:func:`create_roi_kernel` to generate the initial kernel mask.
 
@@ -620,11 +641,11 @@ def create_roi_average_kernel(radius):
     Returns:
         np.ndarray: Arrays of 1s and 0s comprising the circular kernel to use for convolution.
     """
-    mask = create_roi_kernel(radius)
+    mask = create_circular_kernel(radius)
     return mask / mask.sum()
 
 
-def create_roi_at(img, radius, x_coord, y_coord):
+def create_circular_mask_at(img, radius, x_coord, y_coord):
     """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
     math operations.
 
@@ -637,12 +658,12 @@ def create_roi_at(img, radius, x_coord, y_coord):
     Returns:
         np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
     """
-    mask = create_roi_mask(img, radius, x_coord, y_coord)
+    mask = create_circular_mask(img, radius, x_coord, y_coord)
     masked_img = np.ma.masked_array(img, mask=~mask, fill_value=0)
     return masked_img
 
 
-def create_roi_with_numpy_index(img, radius, argx):
+def create_circular_mask_with_numpy_index(img, radius, argx):
     """Wrapper around :py:func:`create_roi_at` meant to use flat element indices and return an roi centered around
     this element.
 
@@ -655,7 +676,7 @@ def create_roi_with_numpy_index(img, radius, argx):
         np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
     """
     x_coord, y_coord = detect_roi_center(img, argx)
-    return create_roi_at(img, radius, x_coord, y_coord), x_coord, y_coord
+    return create_circular_mask_at(img, radius, x_coord, y_coord), x_coord, y_coord
 
 
 def detect_roi_center(img, argx):
