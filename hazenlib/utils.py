@@ -1,4 +1,5 @@
 import os
+import re
 import cv2 as cv
 import pydicom
 import imutils
@@ -12,6 +13,26 @@ import hazenlib.exceptions as exc
 from hazenlib.logger import logger
 
 matplotlib.use("Agg")
+
+
+REGEX_SCRUBNAME = '\\^\\\\`\\{\\}\\[\\]\\(\\)\\!\\$\'\\/\\ \\_\\:\\,\\-\\&\\=\\.\\*\\+\\;\\#'  #: Regex to match for these dirty characters.
+
+
+def scrub(dirtyString, matchCharacters, join_str='_'):
+    """
+    This function provides the core functionality for scrubbing strings for bad characters. This is the most useful
+    function in the core library since it provides a security hardening benefit as well. Ideally, user input should get
+    scrubbed with this function or derivatives. This functionality is mediated by `re.split
+    <https://docs.python.org/3/library/re.html?highlight=re%20split#re.split>`_.
+
+    :param dirtyString: Untrustworthy string that needs to be stripped of bad characters such as newlines.
+    :param matchCharacters: Iterable of characters to scrub out of the string (typically a string of such characters)
+    :param join_str: String used in-between clean fragments. Example, te\\nst => te_st if this parameter is _
+    :return: Reconstructed clean string.
+    """
+    pattern = re.compile('[{}]'.format(matchCharacters))
+    target_string = re.split(pattern, str(dirtyString))
+    return join_str.join(target_string)
 
 
 def get_dicom_files(folder: str, sort=False) -> list:
@@ -557,6 +578,122 @@ def detect_centroid(img, dx, dy):
     return detected_circles.flatten()
 
 
+def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
+    """Calculates the radius of an ROI given an area. The radius is in pixel count. Meaning, if we want to get the
+    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution = 0.5`,
+    and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the resolution to yield
+    the radius in pixel count units.
+
+    Args:
+        area (int): Area of ROI that will be generated with the radius calculated in this function
+        voxel_resolution (float): voxel/pixel resolution as given by the PixelSpacing attribute in the DICOM header.
+            This is typically in millimeter units.
+        conversion_value (int): Value to use to convert the radius from area units (cm, etc) to mm.
+
+    Returns:
+        int: Integer radius length.
+    """
+    return np.ceil(np.divide(np.sqrt(np.divide(area, np.pi)) * conversion_value, voxel_resolution)).astype(int)
+
+
+def create_circular_mask(img, radius, x_coord, y_coord):
+    """Generates a mask for an roi at the given coordinates
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    height, width = img.shape
+    y_grid, x_grid = np.ogrid[:height, :width]
+    return (x_grid - x_coord) ** 2 + (y_grid - y_coord) ** 2 <= radius ** 2
+
+
+def create_circular_kernel(radius):
+    """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
+
+    Args:
+        radius (int): Integer radius of the circular roi
+
+    Returns:
+        np.ndarray: Arrays of 1s and 0s comprising the circular kernel to use for convolution.
+    """
+    diameter = (radius * 2) + 1
+    kernel_arr = np.zeros((diameter, diameter), dtype=np.bool_)
+    return create_circular_mask(kernel_arr, radius, radius, radius).astype(np.int_)
+
+
+def create_circular_mean_kernel(radius):
+    """Generate ROI kernel that can be used during convolutions. This is for generating circular kernels.
+    Uses :py:func:`create_roi_kernel` to generate the initial kernel mask.
+
+    avg_kernel = kernel / kernel.sum()
+
+    Convoluting against this kernel should yield
+
+    Args:
+        radius (int): Integer radius of the circular roi
+
+    Returns:
+        np.ndarray: Arrays of 1s and 0s comprising the circular kernel to use for convolution.
+    """
+    mask = create_circular_kernel(radius)
+    return mask / mask.sum()
+
+
+def create_circular_mask_at(img, radius, x_coord, y_coord):
+    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
+    math operations.
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    mask = create_circular_mask(img, radius, x_coord, y_coord)
+    masked_img = np.ma.masked_array(img, mask=~mask, fill_value=0)
+    return masked_img
+
+
+def create_circular_mask_with_numpy_index(img, radius, argx):
+    """Wrapper around :py:func:`create_roi_at` meant to use flat element indices and return an roi centered around
+    this element.
+
+    Args:
+        img (np.ndarray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        argx (int): index to nd.array element if the array was flattened. Example, value from argmax().
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    x_coord, y_coord = detect_roi_center(img, argx)
+    return create_circular_mask_at(img, radius, x_coord, y_coord), x_coord, y_coord
+
+
+def detect_roi_center(img, argx):
+    """Finds the x and y coordinates of the center of an roi given the flat index in the numpy array!
+
+    Args:
+        img (np.ndarray): pixel array containing the data where to generate roi
+        argx (int): index to nd.array element if the array was flattened. Example, value from argmax().
+
+    Returns:
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+    """
+    height, width = img.shape
+    return np.divmod(argx, width)
+
+
 def debug_image_sample(img, out_path=None):
     """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
     Use this function to force a display of an intermediate numpy image array to visually inspect results.
@@ -566,9 +703,9 @@ def debug_image_sample(img, out_path=None):
         out_path (str): file path where you would like to save a copy of the image
 
     """
-    snapshot = DebugSnapshotShow(img, 'L').image
+    snapshot = DebugSnapshotShow(img).image
     if not out_path is None:
-        snapshot.save(out_path, format="PNG", dpi=(96, 96))
+        snapshot.save(out_path, format="PNG", dpi=(300, 300))
 
 
 class DebugSnapshotShow:
@@ -579,15 +716,14 @@ class DebugSnapshotShow:
     You will need to install Pillow/PIL library and dependencies separately.
     This class is meant to assist during debugging of image processing steps.
     """
-
     def __init__(self, image_instance, target_mode=None):
         from PIL import Image, ImageShow
         if isinstance(image_instance, str):
             image_instance = Image.open(image_instance)
-        elif isinstance(image_instance, np.ndarray):
+        elif isinstance(image_instance, np.ndarray) or isinstance(image_instance, np.ma.MaskedArray):
+            image_instance = (image_instance - image_instance.min()) / (image_instance.max() - image_instance.min())
+            image_instance = (image_instance * 255).astype(np.uint8)
             image_instance = Image.fromarray(image_instance)
-        if not target_mode is None:
-            image_instance.convert(target_mode)
         presenter = ImageShow.EogViewer()
         presenter.show_image(image_instance)
         self.image = image_instance
