@@ -22,7 +22,7 @@ import traceback
 
 import numpy as np
 from scipy.signal import convolve2d
-from matplotlib import pyplot as plt
+from matplotlib.pyplot import subplots as plt_subplots
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
@@ -83,7 +83,7 @@ class ACRUniformity(HazenTask):
         x_max, y_max, max_value = max_roi
         x_min, y_min, min_value = min_roi
 
-        fig, axes = plt.subplots(2, 1)
+        fig, axes = plt_subplots(2, 1)
         fig.set_size_inches(8, 16)
         fig.tight_layout(pad=4)
 
