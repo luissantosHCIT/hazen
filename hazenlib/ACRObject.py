@@ -4,7 +4,7 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle, detect_centroid
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample
 
 
 class ACRObject:
@@ -31,6 +31,7 @@ class ACRObject:
 
         # Perform sorting of the image slices based on phantom orientation
         self.slice_stack = self.order_phantom_slices(sorted_dcms)
+        logger.info(f'Ordered slices => {[sl.InstanceNumber for sl in self.slice_stack]}')
 
     def sort_dcms(self, dcm_list):
         """Sort a stack of DICOM images based on slice position.
@@ -315,3 +316,71 @@ class ACRObject:
         peak_locs = pk_ind[(-pk_heights).argsort()[:n]]  # find n highest peak locations
 
         return np.sort(peak_locs), np.sort(peak_heights)
+
+    @staticmethod
+    def apply_window_width_center(data, center, width):
+        """Filters data by the specified center and width.
+
+        ::
+
+            Murphy A, Wilczek M, Feger J, et al. Windowing (CT). Reference article,
+            Radiopaedia.org (Accessed on 24 Jan 2025) https://doi.org/10.53347/rID-52108
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+
+        Returns:
+            np.ndarray: Scaled data
+
+        """
+        dtype = data.dtype
+        dtype_max = np.iinfo(dtype).max
+        half_width = width / 2
+        upper_grey = center + half_width
+        lower_grey = center - half_width
+        logger.info(f'Applying Window Settings from => Center: {center} Width: {width}')
+        logger.info(f'Window Thresholds => Upper Threshold: {upper_grey} Lower Threshold: {lower_grey}')
+        upper_mask = data > upper_grey
+        lower_mask = data < lower_grey
+        mid_mask = upper_mask & lower_mask
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[lower_mask] = 0
+        masked_data[upper_mask] = dtype_max
+        # Stretch center values across the data type range
+        return (((masked_data - lower_grey) / (upper_grey - lower_grey)) * dtype_max).astype(dtype)
+
+    @staticmethod
+    def compute_width_and_center(data):
+        """Automatically resolves the center and width settings from the given data. If you wish to derive the
+        center and width from roi
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data to perform center and width calculation
+
+        Returns:
+            tuple of int:
+                center (float): The desired Window Center setting. \n
+                width (float): The desired Window Width setting.
+
+        """
+        width = np.std(data)
+        return np.round(ACRObject.compute_data_mode(data)), np.round(width)
+
+    @staticmethod
+    def compute_data_mode(data):
+        """Computes the mode of the given dataset using a 35 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=35)
+        return bins[np.argmax(hist)]
+
