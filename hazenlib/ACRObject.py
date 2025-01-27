@@ -4,7 +4,7 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range
 
 
 class ACRObject:
@@ -350,7 +350,7 @@ class ACRObject:
         masked_data[lower_mask] = 0
         masked_data[upper_mask] = dtype_max
         # Stretch center values across the data type range
-        return (((masked_data - lower_grey) / (upper_grey - lower_grey)) * dtype_max).astype(dtype)
+        return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
 
     @staticmethod
     def compute_width_and_center(data):
@@ -382,5 +382,23 @@ class ACRObject:
         """
         search_data = data[data > 0]
         hist, bins = np.histogram(search_data, bins=35)
-        return bins[np.argmax(hist)]
+        mode = bins[np.argmax(hist)]
+        logger.info(f'Computed mode: {mode}')
+        return mode
+
+    @staticmethod
+    def threshold_data(data, intensity, fill=0):
+        """Thresholds the data. Meaning, every pixel with value < intensity will be replaced by the value in fill.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+            intensity (float): pixel value to use as the threshold
+            fill (float, optional): pixel value to use as replacement. Defaults to 0.
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        data[data < intensity] = fill
+        return data
 
