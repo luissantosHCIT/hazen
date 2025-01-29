@@ -336,7 +336,10 @@ class ACRObject:
 
         """
         dtype = data.dtype
-        dtype_max = np.iinfo(dtype).max
+        try:
+            dtype_max = np.iinfo(dtype).max
+        except:
+            dtype_max = np.finfo(dtype).max
         half_width = width / 2
         upper_grey = center + half_width
         lower_grey = center - half_width
@@ -387,18 +390,52 @@ class ACRObject:
         return mode
 
     @staticmethod
-    def threshold_data(data, intensity, fill=0):
-        """Thresholds the data. Meaning, every pixel with value < intensity will be replaced by the value in fill.
+    def threshold_data(data, intensity, fill=0, greater_than=False):
+        """Thresholds the data. Meaning, every pixel with value < intensity or > intensity will be replaced by the
+        value in fill. Which side to fill with fill value is driven by the greater_than flag. By default,
+        we do the former.
 
         Args:
             data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
             intensity (float): pixel value to use as the threshold
             fill (float, optional): pixel value to use as replacement. Defaults to 0.
+            greater_than (bool, optional): Do we fill values that are greater than the specified threshold? Defaults to False.
 
         Returns:
-            mode (float): non-zero mode of the dataset.
+            data (np.ndarray|np.ma.MaskedArray): data reference.
 
         """
-        data[data < intensity] = fill
+        mask = data >= intensity if greater_than else data <= intensity
+        data[mask] = fill
+        return data
+
+    @staticmethod
+    def filter_with_dog(data, sigma1=1, sigma2=2, contrast=1, iterations=1):
+        """Performs two Gaussian convolutions with each taking a sigma. Subtracts the second from the first. The idea is
+        to eliminate noise.
+
+        Per my testing, this implementation is equivalent to `skimage.filters.difference_of_gaussians` when results are
+        binarized. However, there is one fundamental difference and that is that the results there come centered as a
+        bellshape which preserve grays. My implementation does not do that. It truly generates pixel subtractions
+        for the same input.
+
+        TODO: Make it work like GIMP's implementation which simplifies noise removal a lot. There is some linear
+        correction magic. See https://stackoverflow.com/questions/57686334/implementation-of-difference-of-gaussians-in-opencv.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+            sigma1 (float, optional): sigma for the first Gaussian operation. Defaults to 1.
+            sigma2 (float, optional): sigma for the second Gaussian operation. This should be bigger than the first value. Defaults to 2.
+            contrast (float, optional): value to multiply against each resulting difference to enhance contrast. Defaults to 1.
+            iterations (int, optional): How many DoG passes to do. Defaults to 1.
+
+        Returns:
+            data (np.ndarray|np.ma.MaskedArray): data reference.
+
+        """
+        for i in range(iterations):
+            blurred = cv2.GaussianBlur(data, (0, 0), sigmaX=sigma1, sigmaY=sigma1)
+            blurred2 = cv2.GaussianBlur(data, (0, 0), sigmaX=sigma2, sigmaY=sigma2)
+            data = cv2.subtract(blurred, blurred2) * contrast + 0.5
         return data
 

@@ -26,7 +26,7 @@ from matplotlib.pyplot import subplots as plt_subplots
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
-from hazenlib.utils import create_circular_mask_at, compute_radius_from_area, \
+from hazenlib.utils import create_circular_roi_at, compute_radius_from_area, \
     create_circular_mask, create_circular_mean_kernel, detect_roi_center
 from hazenlib import logger
 
@@ -249,7 +249,7 @@ class ACRUniformity(HazenTask):
         logger.info(f'Adjusted centroid to ({center_x}, {center_y})')
 
         logger.info('Getting large ROI in image...')
-        large_roi = create_circular_mask_at(img, self.r_large, center_x, center_y)
+        large_roi = create_circular_roi_at(img, self.r_large, center_x, center_y)
         large_roi_valid_space = create_circular_mask(img, self.r_large_filter, center_x, center_y)
 
         logger.info('Getting the min and max mean ROIs in image...')
