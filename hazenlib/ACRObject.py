@@ -439,3 +439,14 @@ class ACRObject:
             data = cv2.subtract(blurred, blurred2) * contrast + 0.5
         return data
 
+    @staticmethod
+    def filter_with_gaussian(data, sigma=1, dtype=np.uint16):
+        normalized = (data / np.amax(np.abs(data))).astype(np.float32)
+        noise_removed = cv2.GaussianBlur(normalized, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_ISOLATED)
+        return expand_data_range(noise_removed, target_type=dtype)
+
+
+    @staticmethod
+    def filter_phantom_contour(data, sigma=1):
+        pass
+

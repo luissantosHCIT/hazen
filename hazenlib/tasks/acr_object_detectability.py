@@ -76,12 +76,10 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Phantom centroid set to {self.center}')
         # Find inner center y coordinates which is slightly offsetted
         offsetted_y = np.round(self.center[1] + 7 / self.ACR_obj.dy)
-        self.center = (self.center[0] - self.ACR_obj.dx, offsetted_y - self.ACR_obj.dy)
+        self.center = (self.center[0] - self.ACR_obj.dx, offsetted_y)
         logger.info(f'Inner ROI centroid set to {self.center}')
-        # Required pixel radius to produce ~80cm2 ROI
-        self.r_outer = compute_radius_from_area(80, self.ACR_obj.dx)
         # Required pixel radius to produce ~75cm2 ROI
-        self.r_inner = compute_radius_from_area(49, self.ACR_obj.dx)
+        self.r_inner = compute_radius_from_area(47, self.ACR_obj.dx)
         # Required pixel radius to produce ~55cm2 ROI
         self.r_noise = compute_radius_from_area(22, self.ACR_obj.dx)
         self.r_small_kernel = create_circular_mean_kernel(int(1/self.ACR_obj.dx))
@@ -235,10 +233,10 @@ class ACRObjectDetectability(HazenTask):
     def detect_objects(self, img, center_x, center_y, slice_num):
         logger.info(f'Processing slice # {8 + slice_num}')
 
-        normalized = (img.data / np.amax(np.abs(img.data))).astype(np.float32)
-        noise_removed = cv2.GaussianBlur(normalized, ksize=(0, 0), sigmaX=1, sigmaY=1, borderType=cv2.BORDER_REPLICATE)
-        noise_removed = expand_data_range(noise_removed, target_type=np.uint16)
+        # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
+        noise_removed = self.ACR_obj.filter_with_gaussian(img.data)
 
+        # Now, we can ready the ROI on which to focus on extracting the signal
         inner_roi = create_circular_roi_at(noise_removed, self.r_inner, center_x, center_y)
         inner_roi[inner_roi.mask] = 0
 
@@ -269,7 +267,7 @@ class ACRObjectDetectability(HazenTask):
         # A spoke is valid if it contains 3 successive spots in diagonal.
         results = self.compute_score(dilated, (center_x, center_y), slice_num)
 
-        results[-1]['img'] = binarized
+        results[-1]['img'] = dilated
 
         return results
 
