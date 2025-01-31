@@ -410,43 +410,87 @@ class ACRObject:
         return data
 
     @staticmethod
-    def filter_with_dog(data, sigma1=1, sigma2=2, contrast=1, iterations=1):
+    def filter_with_dog(data, sigma1=1, sigma2=2, gamma=1.0, iterations=1, ksize=(0, 0)):
         """Performs two Gaussian convolutions with each taking a sigma. Subtracts the second from the first. The idea is
         to eliminate noise.
+
+        Steps:
+        ______
+
+            #. Copy the input data
+            #. Normalize input data to range [0, 1.0]
+            #. Offset results by 0.5 to avoid numpy.power() error message if gamma is not 1.
+            #. Apply gamma correction
+            #. Obtain 1st Gaussian blurred image using sigma1 for both sigmaX and sigmaY.
+            #. Obtain 2nd Gaussian blurred image using sigma2 for both sigmaX and sigmaY.
+            #. Subtract => 1 - 2
+            #. Remove the offset
+            #. Repeat 4 - 8 for n iterations
+            #. Restore results intensity range to the input's data type.
+            #. Return results
+
+        Notes:
+        ______
 
         Per my testing, this implementation is equivalent to `skimage.filters.difference_of_gaussians` when results are
         binarized. However, there is one fundamental difference and that is that the results there come centered as a
         bellshape which preserve grays. My implementation does not do that. It truly generates pixel subtractions
         for the same input.
 
-        TODO: Make it work like GIMP's implementation which simplifies noise removal a lot. There is some linear
-        correction magic. See https://stackoverflow.com/questions/57686334/implementation-of-difference-of-gaussians-in-opencv.
+        To better mirror the way GIMP implements a difference of Gaussians, I added gamma correction using the
+        `Power Law Transform <https://pyimagesearch.com/2015/10/05/opencv-gamma-correction/>`_ on the blurred
+        intermediates. The idea is that we can force some of the pixels that are closer to the background closer to 0,
+        which can be filtered out elsewhere in your algorithm. Conversely, if you use a larger gamma value, you can
+        increase the intensity of pixels and thus bias the output signal towards more surviving pixels if the output
+        is meant to be used in a subtraction or threshold operation. Leave the gamma as sis if you simply want
+        a DoG without gamma correction.
+
+        An initial offset of 0.5 is applied to the data if gamma != 1.0 to avoid the following error in numpy.power()!
+
+        .. error::
+
+            line 4658, in _lerp
+            subtract(b, diff_b_a * (1 - t), out=lerp_interpolation, where=t >= 0.5,
+            ValueError: output array is read-only
 
         Args:
             data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
             sigma1 (float, optional): sigma for the first Gaussian operation. Defaults to 1.
             sigma2 (float, optional): sigma for the second Gaussian operation. This should be bigger than the first value. Defaults to 2.
-            contrast (float, optional): value to multiply against each resulting difference to enhance contrast. Defaults to 1.
+            gamma (float, optional): value to multiply against each resulting difference to enhance contrast. Defaults to 1.
             iterations (int, optional): How many DoG passes to do. Defaults to 1.
 
         Returns:
             data (np.ndarray|np.ma.MaskedArray): data reference.
 
         """
+        dtype = data.dtype
+        g = 1 / gamma
+        correction = 0.5 if gamma != 1.0 else 0
+        inverse_correction = np.power(correction, g)
+        working_data = ACRObject.normalize_to_one(data.copy())
+        working_data = np.power(working_data + correction, g)
         for i in range(iterations):
-            blurred = cv2.GaussianBlur(data, (0, 0), sigmaX=sigma1, sigmaY=sigma1)
-            blurred2 = cv2.GaussianBlur(data, (0, 0), sigmaX=sigma2, sigmaY=sigma2)
-            data = cv2.subtract(blurred, blurred2) * contrast + 0.5
-        return data
+            blurred = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma1, sigmaY=sigma1)
+            blurred2 = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma2, sigmaY=sigma2)
+            working_data = cv2.subtract(blurred, blurred2)
+        working_data = working_data - inverse_correction
+        working_data = expand_data_range(working_data, target_type=dtype)
+        return working_data
 
     @staticmethod
-    def filter_with_gaussian(data, sigma=1, dtype=np.uint16):
-        normalized = (data / np.amax(np.abs(data))).astype(np.float32)
-        noise_removed = cv2.GaussianBlur(normalized, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_ISOLATED)
+    def filter_with_gaussian(data, sigma=1, ksize=(0, 0), dtype=np.uint16):
+        noise_removed = cv2.GaussianBlur(data, ksize=ksize, sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_ISOLATED)
         return expand_data_range(noise_removed, target_type=dtype)
 
-
     @staticmethod
-    def filter_phantom_contour(data, sigma=1):
-        pass
+    def normalize_to_one(data):
+        return cv2.normalize(
+            src=data,
+            dst=None,
+            alpha=0,
+            beta=1,
+            norm_type=cv2.NORM_MINMAX,
+            dtype=cv2.CV_32FC1,
+        )
 

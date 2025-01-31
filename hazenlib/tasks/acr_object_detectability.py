@@ -79,15 +79,15 @@ class ACRObjectDetectability(HazenTask):
         self.center = (self.center[0] - self.ACR_obj.dx, offsetted_y)
         logger.info(f'Inner ROI centroid set to {self.center}')
         # Required pixel radius to produce ~75cm2 ROI
-        self.r_inner = compute_radius_from_area(47, self.ACR_obj.dx)
+        self.r_inner = compute_radius_from_area(75, self.ACR_obj.dx)
         # Required pixel radius to produce ~55cm2 ROI
-        self.r_noise = compute_radius_from_area(22, self.ACR_obj.dx)
-        self.r_small_kernel = create_circular_mean_kernel(int(1/self.ACR_obj.dx))
-        self.r_sharpen_kernel = create_circular_mean_kernel(int(1/self.ACR_obj.dx))
+        self.r_noise = compute_radius_from_area(15, self.ACR_obj.dx)
+        self.r_small_kernel = create_circular_mean_kernel(int(1 / self.ACR_obj.dx))
+        self.r_sharpen_kernel = create_circular_mean_kernel(int(1 / self.ACR_obj.dx))
         # TODO: Validate rotation detection to include in mask calculations
         self.phantom_rotation_offset = self.ACR_obj.determine_rotation(img)
         # Grab default width and center
-        #self.original_center, self.original_width = self.ACR_obj.compute_width_and_center(img)
+        # self.original_center, self.original_width = self.ACR_obj.compute_width_and_center(img)
 
     def run(self) -> dict:
         """Main function for performing uniformity measurement using slice 7 from the ACR phantom image set.
@@ -108,8 +108,8 @@ class ACRObjectDetectability(HazenTask):
         results["file"] = [self.img_desc(sl) for sl in slices]
 
         try:
-            results["data"] = self.get_spokes_and_scores(slices)
-            results["measurement"] = results["data"]['score']
+            r = self.get_spokes_and_scores(slices)
+            results.update(r["meta"])
         except Exception as e:
             logger.error(
                 f"Could not calculate the number of spokes for the Low Contrast Object Detectability Task "
@@ -127,47 +127,48 @@ class ACRObjectDetectability(HazenTask):
         (centre_x, centre_y) = centre
         theta = np.linspace(0, 2 * np.pi, 360)
         spot_r = compute_radius_from_area(0.25, self.ACR_obj.dx)
+        data = results["data"]
 
         for i in range(len(slices)):
             dcm = slices[i]
-            img = dcm.pixel_array
-            img_result = results[i]
+            img_result = data[i]
 
-            fig, axes = plt_subplots(2, 1)
+            fig, axes = plt_subplots(3, 1)
             fig.set_size_inches(8, 16)
             fig.tight_layout(pad=4)
 
             # Centroid
-            axes[0].imshow(img)
+            axes[0].imshow(img_result[-1]['img'][0], cmap='gray', vmin=0, vmax=255)
             axes[0].scatter(centre_x, centre_y, c="red")
             axes[0].axis("off")
-            axes[0].set_title("Centroid Location")
+            axes[0].set_title("Window Leveled + Centroid Location")
 
-            axes[1].imshow(img_result[-1]['img'], cmap='gray', vmin=0, vmax=255)
+            # DoG
+            axes[1].imshow(img_result[-1]['img'][1])
+            axes[1].axis("off")
+            axes[1].set_title("Difference of Gaussians")
+
+            axes[2].imshow(img_result[-1]['img'][2], cmap='gray', vmin=0, vmax=255)
             spokes = len(img_result) - 1
             for j in range(spokes):
                 spot_center1, spot_center2, spot_center3 = img_result[j]['centers']
-                axes[1].scatter(
-                    [spot_center1[0], spot_center2[0], spot_center3[0]],
-                    [spot_center1[1], spot_center2[1], spot_center3[1]],
-                    c="red",
-                    marker="x"
-                )
-                axes[1].plot(
+                axes[2].plot(
                     spot_r * np.cos(theta) + spot_center1[0],
                     spot_r * np.sin(theta) + spot_center1[1],
                     c="green",
                 )
-                axes[1].plot(
+                axes[2].plot(
                     spot_r * np.cos(theta) + spot_center2[0],
                     spot_r * np.sin(theta) + spot_center2[1],
                     c="green",
                 )
-                axes[1].plot(
+                axes[2].plot(
                     spot_r * np.cos(theta) + spot_center3[0],
                     spot_r * np.sin(theta) + spot_center3[1],
                     c="green",
                 )
+            axes[2].axis("off")
+            axes[2].set_title("Valid Spokes (dilated)")
 
             img_path = os.path.realpath(
                 os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
@@ -175,8 +176,10 @@ class ACRObjectDetectability(HazenTask):
             fig.savefig(img_path)
             self.report_files.append(img_path)
 
-    def calculate_spot_location(self, center, angle, spot_separation, spot):
-        x_dist, y_dist = np.floor(np.cos(angle) * spot_separation * spot), np.floor(np.sin(angle) * spot_separation * spot)
+    @staticmethod
+    def calculate_spot_location(center, angle, spot_separation, spot):
+        x_dist, y_dist = np.floor(np.cos(angle) * spot_separation * spot), np.floor(
+            np.sin(angle) * spot_separation * spot)
         return (center[0] + x_dist, center[1] - y_dist)
 
     def detect_spot(self, img, center, angle, spot_separation, spot_radius, spot):
@@ -195,16 +198,17 @@ class ACRObjectDetectability(HazenTask):
 
         return spot1, spot2, spot3
 
-    def combine_masks(self, spots, target_mask):
+    @staticmethod
+    def combine_masks(spots, target_mask):
         # Combine the spot masks into a master spoke mask
         spot1, spot2, spot3 = spots
         combined_mask = np.ma.mask_or(~spot1[0].mask, np.ma.mask_or(~spot2[0].mask, ~spot3[0].mask))
         return np.ma.mask_or(combined_mask, target_mask)
 
-
-    def binarize(self, img):
+    @staticmethod
+    def binarize(img):
         bin = expand_data_range(img, target_type=np.uint8)
-        thr = np.percentile(bin, 99)
+        thr = np.percentile(bin[np.nonzero(bin)], 98.7)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -234,7 +238,7 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Processing slice # {8 + slice_num}')
 
         # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
-        noise_removed = self.ACR_obj.filter_with_gaussian(img.data)
+        noise_removed = self.ACR_obj.filter_with_gaussian(img)
 
         # Now, we can ready the ROI on which to focus on extracting the signal
         inner_roi = create_circular_roi_at(noise_removed, self.r_inner, center_x, center_y)
@@ -249,10 +253,14 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Target Windowing => {center}, {width}')
 
         # Apply the previously computed window settings to the inner ROI window.
-        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 1/self.ACR_obj.dx)
+        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 1 / self.ACR_obj.dx)
 
         # Perform Difference of Gaussians to further isolate relevant pixels
-        dog = self.ACR_obj.filter_with_dog(contrasted, 1/self.ACR_obj.dx, 2/self.ACR_obj.dx)
+        # Using a large gamma to allow high intensities to survive the DoG operation.
+        # Gamma correction has a profound effect on remaining signal just like the selection of sigma2.
+        # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
+        # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
+        dog = self.ACR_obj.filter_with_dog(contrasted, 1 / self.ACR_obj.dx, 1.7 / self.ACR_obj.dx, gamma=20)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
@@ -267,7 +275,9 @@ class ACRObjectDetectability(HazenTask):
         # A spoke is valid if it contains 3 successive spots in diagonal.
         results = self.compute_score(dilated, (center_x, center_y), slice_num)
 
-        results[-1]['img'] = dilated
+        windowed = expand_data_range(contrasted)
+        windowed[inner_roi.mask] = 0
+        results[-1]['img'] = [windowed, dog, dilated]
 
         return results
 
@@ -286,10 +296,19 @@ class ACRObjectDetectability(HazenTask):
         """
         (center_x, center_y) = self.center
 
-        results = {}
+        results = {
+            "meta": {},
+            "data": {}
+        }
+        score = 0
         for i in range(4):
             img = slices[i].pixel_array
-            results[i] = self.detect_objects(img, center_x, center_y, i)
+            results["data"][i] = self.detect_objects(img, center_x, center_y, i)
+            score += len(results["data"][i]) - 1
+
+        results["meta"]["field_strength"] = slices[-1].MagneticFieldStrength
+        results["meta"]["score"] = score
+        logger.info(results["meta"])
 
         if self.report:
             logger.info('Writing report ... ')
