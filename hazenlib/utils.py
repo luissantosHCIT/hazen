@@ -1,5 +1,7 @@
 import os
 import re
+from multiprocessing import Pool
+
 import cv2 as cv
 import pydicom
 import imutils
@@ -13,7 +15,6 @@ import hazenlib.exceptions as exc
 from hazenlib.logger import logger
 
 matplotlib.use("Agg")
-
 
 REGEX_SCRUBNAME = '\\^\\\\`\\{\\}\\[\\]\\(\\)\\!\\$\'\\/\\ \\_\\:\\,\\-\\&\\=\\.\\*\\+\\;\\#'  #: Regex to match for these dirty characters.
 
@@ -350,10 +351,10 @@ def get_field_of_view(dcm: pydicom.Dataset):
     elif "philips" in manufacturer:
         if is_enhanced_dicom(dcm):
             fov = (
-                dcm.Columns
-                * dcm.PerFrameFunctionalGroupsSequence[0]
-                .PixelMeasuresSequence[0]
-                .PixelSpacing[0]
+                    dcm.Columns
+                    * dcm.PerFrameFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[0]
             )
         else:
             fov = dcm.Columns * dcm.PixelSpacing[0]
@@ -437,21 +438,21 @@ def determine_orientation(dcm_list):
         logger.debug("Checking phantom orientation based on ImagePositionPatient")
         # Assume phantom orientation based on the changing value in ImagePositionPatient
         if (
-            len(set(x)) == expected
-            and len(set(y)) < expected
-            and len(set(z)) < expected
+                len(set(x)) == expected
+                and len(set(y)) < expected
+                and len(set(z)) < expected
         ):
             return "sagittal", x
         elif (
-            len(set(x)) < expected
-            and len(set(y)) == expected
-            and len(set(z)) < expected
+                len(set(x)) < expected
+                and len(set(y)) == expected
+                and len(set(z)) < expected
         ):
             return "coronal", y
         elif (
-            len(set(x)) < expected
-            and len(set(y)) < expected
-            and len(set(z)) == expected
+                len(set(x)) < expected
+                and len(set(y)) < expected
+                and len(set(z)) == expected
         ):
             return "axial", z
         else:
@@ -534,7 +535,7 @@ def detect_circle(img, dx):
             minRadius=int(5 / dx),
             maxRadius=int(16 / dx),
         )
-    #debug_image_sample(normalised_img)
+    # debug_image_sample(normalised_img)
     return detected_circles
 
 
@@ -556,7 +557,7 @@ def detect_circle2(img, dx):
         param2=0.8,
         minDist=int(180 / dx),
     )
-    #debug_image_sample(img_grad)
+    # debug_image_sample(img_grad)
     """
     detected_circles = cv.HoughCircles(
         normalised_img,
@@ -577,7 +578,7 @@ def detect_circle2(img, dx):
     )
     """
     logger.info(detected_circles)
-    #debug_image_sample_circles(normalised_img, detected_circles)
+    # debug_image_sample_circles(normalised_img, detected_circles)
     return detected_circles
 
 
@@ -595,7 +596,7 @@ def detect_centroid(img, dx, dy):
     """
     img_blur = cv.GaussianBlur(img, (1, 1), 0)
     img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
-    #debug_image_sample(img_grad)
+    # debug_image_sample(img_grad)
 
     try:
         detected_circles = cv.HoughCircles(
@@ -760,6 +761,33 @@ def detect_roi_center(img, argx):
     return np.divmod(argx, width)
 
 
+def wait_on_parallel_results(fxn, arg_list=[]):
+    """Parallelises a function into n number of jobs. It uses Python's multiprocessing Pool to spawn several processes
+    that accept each job instance and processes it. The main use in this project is as a way to keep the report writing
+    as fast as possible when we have multiple images to write to disk.
+
+    Args:
+        fxn (function): function symbol to execute on arguments
+        arg_list (list of tuple): List of tuples. Each tuple has the list of parameters to pass to function. Therefore,
+            each tuple symbolizes a job we need to process using the specified function.
+
+    Returns:
+        list: List of values returned by each job.
+    """
+    with Pool() as pool:
+        results = []
+        result_handles = []
+        for args in arg_list:
+            result_handles.append(pool.apply_async(fxn, args))
+
+        pool.close()
+        pool.join()
+
+        for r in result_handles:
+            results.append(r.get())
+        return results
+
+
 def debug_image_sample(img, out_path=None):
     """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
     Use this function to force a display of an intermediate numpy image array to visually inspect results.
@@ -786,7 +814,7 @@ def debug_image_sample_circles(img, circles=[], out_path=None):
     for circle in circles[-1]:
         logger.info(f'Center {circle[0]}, {circle[1]}')
         center = (int(circle[0]), int(circle[1]))
-        cv2.circle(img, center, int(circle[2]), (0,255,0), 1)
+        cv2.circle(img, center, int(circle[2]), (0, 255, 0), 1)
     debug_image_sample(img, out_path)
 
 
