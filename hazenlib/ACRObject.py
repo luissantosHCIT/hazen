@@ -468,7 +468,7 @@ class ACRObject:
         g = 1 / gamma
         correction = 0.5 if gamma != 1.0 else 0
         inverse_correction = np.power(correction, g)
-        working_data = ACRObject.normalize_to_one(data.copy())
+        working_data = ACRObject.normalize_to_one(data.copy(), max=1, dtype=cv2.CV_32FC1)
         working_data = np.power(working_data + correction, g)
         for i in range(iterations):
             blurred = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma1, sigmaY=sigma1)
@@ -484,13 +484,13 @@ class ACRObject:
         return expand_data_range(noise_removed, target_type=dtype)
 
     @staticmethod
-    def normalize_to_one(data):
+    def normalize_to_one(data, max=255, dtype=cv2.CV_8U):
         return cv2.normalize(
             src=data,
             dst=None,
             alpha=0,
-            beta=1,
+            beta=max,
             norm_type=cv2.NORM_MINMAX,
-            dtype=cv2.CV_32FC1,
+            dtype=dtype,
         )
 

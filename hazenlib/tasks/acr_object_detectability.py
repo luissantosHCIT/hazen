@@ -260,7 +260,7 @@ class ACRObjectDetectability(HazenTask):
         # Gamma correction has a profound effect on remaining signal just like the selection of sigma2.
         # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
         # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
-        dog = self.ACR_obj.filter_with_dog(contrasted, 1 / self.ACR_obj.dx, 1.7 / self.ACR_obj.dx, gamma=20)
+        dog = self.ACR_obj.filter_with_dog(contrasted, 1 / self.ACR_obj.dx, 2 / self.ACR_obj.dx, gamma=100)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
