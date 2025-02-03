@@ -585,6 +585,17 @@ def detect_circle2(img, dx):
 def detect_centroid(img, dx, dy):
     """Attempt to detect circle locations using cv2.HoughCircles().
 
+    We do the following preprocessing of the input to improve accuracy:
+
+        #. Image normalization in the 8bit range.
+        #. Gaussian blurring with sigma=1.
+        #. Gaussian blurring with sigma=3
+        #. Sobel operator on quick Difference of Gaussians.
+
+    These preprocessing steps improve the circle contours, which are then fed into the Hough Transform.
+    By the way, we try the Hough Transform with cv.HOUGH_GRADIENT_ALT first. Failing that, we try the default Hough
+    Transform mode. Also, we use 2 separate sets of parameter for each transform until we hopefully detect the phantom.
+
     Args:
         img (np.ndarray): pixel array containing the data to perform circle detection on
         dx (int): The coordinates of the point to rotate
@@ -594,9 +605,17 @@ def detect_centroid(img, dx, dy):
         np.ndarray: Flattened array of tuples
 
     """
-    img_blur = cv.GaussianBlur(img, (1, 1), 0)
-    img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
-    # debug_image_sample(img_grad)
+    normalised_img = cv.normalize(
+        src=img,
+        dst=None,
+        alpha=0,
+        beta=255,
+        norm_type=cv.NORM_MINMAX,
+        dtype=cv.CV_8U,
+    )
+    img_blur = cv.GaussianBlur(normalised_img, (0, 0), sigmaX=1, sigmaY=1)
+    img_blur2 = cv.GaussianBlur(normalised_img, (0, 0), sigmaX=3, sigmaY=3)
+    img_grad = cv.Sobel(img_blur - img_blur2, 0, dx=1, dy=1)
 
     try:
         detected_circles = cv.HoughCircles(

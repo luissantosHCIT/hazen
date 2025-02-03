@@ -112,22 +112,11 @@ class ACRObjectDetectability(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
-        # Reference slice
-        img = self.ACR_obj.slice_stack[6].pixel_array
-        # Calculate center
-        self.center, _ = self.ACR_obj.find_phantom_center(
-            img, self.ACR_obj.dx, self.ACR_obj.dy
-        )
-        logger.info(f'Phantom centroid set to {self.center}')
-        # Find inner center y coordinates which is slightly offsetted
-        offsetted_y = np.round(self.center[1] + 7 / self.ACR_obj.dy)
-        self.center = (self.center[0] - self.ACR_obj.dx, offsetted_y)
-        logger.info(f'Inner ROI centroid set to {self.center}')
         # Required pixel radius to produce ~75cm2 ROI
-        self.r_inner = compute_radius_from_area(75, self.ACR_obj.dx)
-        # Required pixel radius to produce ~15 ROI
-        self.r_noise = compute_radius_from_area(15, self.ACR_obj.dx)
-        # Required pixel radius to produce ~0.25 ROI
+        self.r_inner = compute_radius_from_area(80, self.ACR_obj.dx)
+        # Required pixel radius to produce ~15cm2 ROI
+        self.r_noise = compute_radius_from_area(25, self.ACR_obj.dx)
+        # Required pixel radius to produce ~0.25cm2 ROI
         self.r_spot = compute_radius_from_area(0.25, self.ACR_obj.dx)
 
     def run(self) -> dict:
@@ -164,10 +153,10 @@ class ACRObjectDetectability(HazenTask):
 
         return results
 
-    def write_report(self, slices, center, results):
+    def write_report(self, slices, results):
         data = results["data"]
 
-        arg_list = [(slices[i], data[i], center) for i in range(len(slices))]
+        arg_list = [(slices[i], data[i], data[i]['center']) for i in range(len(slices))]
         self.report_files = wait_on_parallel_results(self.write_report_slice, arg_list)
 
     def write_report_slice(self, dcm, img_result, center, theta=np.linspace(0, 2 * np.pi, 360)):
@@ -177,20 +166,19 @@ class ACRObjectDetectability(HazenTask):
         fig.tight_layout(pad=4)
 
         # Centroid
-        axes[0].imshow(img_result[-1]['img'][0], cmap='gray', vmin=0, vmax=255)
+        axes[0].imshow(img_result['img'][0], cmap='gray', vmin=0, vmax=255)
         axes[0].scatter(center_x, center_y, c="red")
         axes[0].axis("off")
         axes[0].set_title("Window Leveled + Centroid Location")
 
         # DoG
-        axes[1].imshow(img_result[-1]['img'][1])
+        axes[1].imshow(img_result['img'][1])
         axes[1].axis("off")
         axes[1].set_title("Difference of Gaussians")
 
-        axes[2].imshow(img_result[-1]['img'][2], cmap='gray', vmin=0, vmax=255)
-        spokes = len(img_result) - 1
-        for j in range(spokes):
-            spot_center1, spot_center2, spot_center3 = img_result[j]['centers']
+        axes[2].imshow(img_result['img'][2], cmap='gray', vmin=0, vmax=255)
+        for spoke in img_result['spokes']:
+            spot_center1, spot_center2, spot_center3 = spoke['centers']
             axes[2].plot(
                 self.r_spot * np.cos(theta) + spot_center1[0],
                 self.r_spot * np.sin(theta) + spot_center1[1],
@@ -255,26 +243,31 @@ class ACRObjectDetectability(HazenTask):
 
     def compute_score(self, feature_data, center, slice_num):
         spoke_results = {}
-        combined_mask = feature_data.mask if isinstance(feature_data, np.ma.MaskedArray) else feature_data > 0
         for spoke in range(10):
             spot1, spot2, spot3 = self.detect_spoke(feature_data, center, slice_num, spoke)
             spot_score = sum([spot1[0].sum() > 0, spot2[0].sum() > 0, spot3[0].sum() > 0])
             valid = spot_score == 3
             if valid:
-                combined_mask = self.combine_masks((spot1, spot2, spot3), combined_mask)
                 spoke_results[spoke] = {
                     "spots": spot_score,
                     "centers": [spot1[1], spot2[1], spot3[1]],
                 }
             else:
                 break
-        spoke_results[-1] = {
-            "mask": combined_mask
-        }
         return spoke_results
 
-    def detect_objects(self, img, center_x, center_y, slice_num):
-        logger.info(f'Processing slice # {8 + slice_num}')
+    def get_img_center(self, img):
+        (center_x, center_y), _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
+        offsetted_y = np.round(center_y + 7 / self.ACR_obj.dy)
+        return (np.round(center_x - self.ACR_obj.dx), np.round(offsetted_y))
+
+    def detect_objects(self, img, slice_num):
+        slice_id = 8 + slice_num
+        logger.info(f'Processing slice # {slice_id}')
+
+        # Step 0, let's obtain a better center
+        (center_x, center_y) = self.get_img_center(img)
+        logger.info(f'Phantom centroid set to {(center_x, center_y)} for slice {slice_id}!')
 
         # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
         noise_removed = self.ACR_obj.filter_with_gaussian(img)
@@ -316,9 +309,14 @@ class ACRObjectDetectability(HazenTask):
 
         windowed = expand_data_range(contrasted)
         windowed[inner_roi.mask] = 0
-        results[-1]['img'] = [windowed, dog, dilated]
 
-        return results
+        return {
+            'id': slice_id,
+            'img': [windowed, dog, dilated],
+            'spokes': [spoke for spoke in results.values()],
+            'score': len(results),
+            'center': (center_x, center_y)
+        }
 
     def get_spokes_and_scores(self, slices):
         """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
@@ -333,22 +331,20 @@ class ACRObjectDetectability(HazenTask):
         Returns:
             float: value of integral uniformity.
         """
-        (center_x, center_y) = self.center
-
         results = {
             "meta": {},
             "data": {}
         }
 
         # Run processing jobs
-        jobs = [(slices[i].pixel_array, center_x, center_y, i) for i in range(4)]
+        jobs = [(slices[i].pixel_array, i) for i in range(4)]
         result_data = wait_on_parallel_results(self.detect_objects, jobs)
 
         # Collect data and final score
         score = 0
         for i in range(4):
             results["data"][i] = result_data[i]
-            score += len(results["data"][i]) - 1
+            score += results["data"][i]['score']
 
         # Append meta data about results
         results["meta"]["field_strength"] = slices[-1].MagneticFieldStrength
@@ -358,6 +354,6 @@ class ACRObjectDetectability(HazenTask):
         # Generate report
         if self.report:
             logger.info('Writing report ... ')
-            self.write_report(slices, (center_x, center_y), results)
+            self.write_report(slices, results)
 
-        return 0
+        return results
