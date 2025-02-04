@@ -73,7 +73,8 @@ from matplotlib.pyplot import subplots as plt_subplots
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib import logger
-from hazenlib.utils import compute_radius_from_area, create_circular_roi_at, expand_data_range, wait_on_parallel_results
+from hazenlib.utils import compute_radius_from_area, create_circular_roi_at, expand_data_range, \
+    wait_on_parallel_results, debug_image_sample
 
 
 class ACRObjectDetectability(HazenTask):
@@ -114,8 +115,10 @@ class ACRObjectDetectability(HazenTask):
         self.ACR_obj = ACRObject(self.dcm_list)
         # Required pixel radius to produce ~75cm2 ROI
         self.r_inner = compute_radius_from_area(80, self.ACR_obj.dx)
+        # Required pixel radius to produce ~0.25cm2 ROI
+        self.r_binarization_sample = compute_radius_from_area(45, self.ACR_obj.dx)
         # Required pixel radius to produce ~15cm2 ROI
-        self.r_noise = compute_radius_from_area(25, self.ACR_obj.dx)
+        self.r_noise = compute_radius_from_area(15, self.ACR_obj.dx)
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_spot = compute_radius_from_area(0.25, self.ACR_obj.dx)
 
@@ -233,9 +236,11 @@ class ACRObjectDetectability(HazenTask):
         return np.ma.mask_or(combined_mask, target_mask)
 
     @staticmethod
-    def binarize(img):
+    def binarize(img, mask=None):
         bin = expand_data_range(img, target_type=np.uint8)
-        thr = np.percentile(bin[np.nonzero(bin)], 98.7)
+        sample = bin if mask is None else bin[mask]
+        #thr = ACRObject.compute_percentile(bin, 98.7)
+        thr = ACRObject.compute_percentile(bin, 98)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -259,7 +264,7 @@ class ACRObjectDetectability(HazenTask):
     def get_img_center(self, img):
         (center_x, center_y), _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
         offsetted_y = np.round(center_y + 7 / self.ACR_obj.dy)
-        return (np.round(center_x - self.ACR_obj.dx), np.round(offsetted_y))
+        return (np.round(center_x - self.ACR_obj.dy), np.round(offsetted_y))
 
     def detect_objects(self, img, slice_num):
         slice_id = 8 + slice_num
@@ -285,14 +290,14 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Target Windowing => {center}, {width}')
 
         # Apply the previously computed window settings to the inner ROI window.
-        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 1 / self.ACR_obj.dx)
+        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 1.5)
 
         # Perform Difference of Gaussians to further isolate relevant pixels
         # Using a large gamma to allow high intensities to survive the DoG operation.
         # Gamma correction has a profound effect on remaining signal just like the selection of sigma2.
         # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
         # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
-        dog = self.ACR_obj.filter_with_dog(contrasted, 1 / self.ACR_obj.dx, 2 / self.ACR_obj.dx, gamma=100)
+        dog = self.ACR_obj.filter_with_dog(contrasted, 0.5 / self.ACR_obj.dx, 1.5 / self.ACR_obj.dx, gamma=20)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
@@ -355,5 +360,6 @@ class ACRObjectDetectability(HazenTask):
         if self.report:
             logger.info('Writing report ... ')
             self.write_report(slices, results)
+            logger.info("Finished writing report!")
 
         return results

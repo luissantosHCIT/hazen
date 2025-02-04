@@ -4,7 +4,8 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range, \
+    create_circular_kernel
 
 
 class ACRObject:
@@ -25,6 +26,7 @@ class ACRObject:
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
         self.dx, self.dy = dcm_list[0].PixelSpacing
+        logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
         # Perform sorting of the input DICOM list based on position
         sorted_dcms = self.sort_dcms(dcm_list)
@@ -374,7 +376,7 @@ class ACRObject:
 
     @staticmethod
     def compute_data_mode(data):
-        """Computes the mode of the given dataset using a 35 bins histogram. This method ignores the zeros.
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
 
         Args:
             data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
@@ -384,10 +386,42 @@ class ACRObject:
 
         """
         search_data = data[data > 0]
-        hist, bins = np.histogram(search_data, bins=35)
+        hist, bins = np.histogram(search_data, bins=100)
         mode = bins[np.argmax(hist)]
         logger.info(f'Computed mode: {mode}')
         return mode
+
+    @staticmethod
+    def compute_percentile(data, percentile):
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        try:
+            non_zero_data = data[np.nonzero(data)]
+            return np.percentile(non_zero_data, percentile)
+        except:
+            return 0
+
+    @staticmethod
+    def compute_percentile_median(data, percentile):
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        perc = ACRObject.compute_percentile(data, percentile)
+        perc_data = data[data >= perc]
+        return np.median(perc_data)
 
     @staticmethod
     def threshold_data(data, intensity, fill=0, greater_than=False):
@@ -468,11 +502,11 @@ class ACRObject:
         g = 1 / gamma
         correction = 0.5 if gamma != 1.0 else 0
         inverse_correction = np.power(correction, g)
-        working_data = ACRObject.normalize_to_one(data.copy(), max=1, dtype=cv2.CV_32FC1)
+        working_data = ACRObject.normalize(data.copy(), max=1, dtype=cv2.CV_32FC1)
         working_data = np.power(working_data + correction, g)
         for i in range(iterations):
             blurred = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma1, sigmaY=sigma1)
-            blurred2 = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma2, sigmaY=sigma2)
+            blurred2 = cv2.GaussianBlur(blurred, ksize, sigmaX=sigma2, sigmaY=sigma2)
             working_data = cv2.subtract(blurred, blurred2)
         working_data = working_data - inverse_correction
         working_data = expand_data_range(working_data, target_type=dtype)
@@ -484,7 +518,7 @@ class ACRObject:
         return expand_data_range(noise_removed, target_type=dtype)
 
     @staticmethod
-    def normalize_to_one(data, max=255, dtype=cv2.CV_8U):
+    def normalize(data, max=255, dtype=cv2.CV_8U):
         return cv2.normalize(
             src=data,
             dst=None,
