@@ -70,6 +70,12 @@ avoiding adding more dependencies and training a neural network for this task at
 suggests that I should read about blob detection algorithms and consider machine learning as well. It could be a very
 productive approach long term.
 
+The Hough Transform does not work reliably for this task. You really are looking into blob detection more so than circle
+detection. DoG returns a decently cleaned image for further analysis. The result is just not easy to clean via
+thresholding.
+
+TL;DR; I definitely need to return to this task and try a cleaner approach.
+
 Created by Luis M. Santos, M.D.
 luis.santos2@nih.gov
 
@@ -395,6 +401,7 @@ class ACRObjectDetectability(HazenTask):
         results = {
             "meta": {
                 "field_strength": field_strength,
+                "slice_scores": [],
                 "score": 0
             },
             "data": {}
@@ -408,7 +415,9 @@ class ACRObjectDetectability(HazenTask):
         score = 0
         for i in range(4):
             results["data"][i] = result_data[i]
-            score += results["data"][i]['score']
+            slice_score = results["data"][i]['score']
+            results["meta"]["slice_scores"].append(slice_score)
+            score += slice_score
 
         # Append meta data about results
         results["meta"]["score"] = score
