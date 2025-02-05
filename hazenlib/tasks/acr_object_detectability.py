@@ -56,6 +56,20 @@ _____________  _______________ ______________
 1.5T - <3T     ≥30             ≥25
 3T             ≥37             ≥37
 
+Notes
+_____
+
+The approach taken here was to do a Difference of Gaussians with several blurring and thresholding steps such that
+the resulting image has most of the noise dropped. Then, we dilate whatever signal is present and hope that the predicted
+mask sees the signal. This approach is very error prone with very noisy scans. As a result, we threshold such that we
+only consider a very high percentile threshold point based on the available signal. Furthermore, the DoG operation tends
+to introduce a rim of noise on the periphery which often blends with the outer ring of spots. Per my tuning, this is
+minimized, but still exists. To avoid this artifact, I can decrease the aggressiveness of the DoG operation at the cost
+of more residual noise in the final output. The reason I tried this approach first is that I was interested in
+avoiding adding more dependencies and training a neural network for this task at this moment. However, current testing
+suggests that I should read about blob detection algorithms and consider machine learning as well. It could be a very
+productive approach long term.
+
 Created by Luis M. Santos, M.D.
 luis.santos2@nih.gov
 
