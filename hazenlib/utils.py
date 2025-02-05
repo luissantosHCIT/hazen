@@ -9,6 +9,8 @@ import matplotlib
 import numpy as np
 
 from collections import defaultdict
+
+from scipy.ndimage import uniform_filter
 from skimage import filters
 
 import hazenlib.exceptions as exc
@@ -614,8 +616,7 @@ def detect_centroid(img, dx, dy):
         dtype=cv.CV_8U,
     )
     img_blur = cv.GaussianBlur(normalised_img, (0, 0), sigmaX=1, sigmaY=1)
-    img_blur2 = cv.GaussianBlur(normalised_img, (0, 0), sigmaX=3, sigmaY=3)
-    img_grad = cv.Sobel(img_blur - img_blur2, 0, dx=1, dy=1)
+    img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
 
     try:
         detected_circles = cv.HoughCircles(

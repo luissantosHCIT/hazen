@@ -68,6 +68,7 @@ import traceback
 
 import cv2
 import numpy as np
+import scipy.stats
 from matplotlib.pyplot import subplots as plt_subplots
 
 from hazenlib.HazenTask import HazenTask
@@ -164,7 +165,7 @@ class ACRObjectDetectability(HazenTask):
 
     def write_report_slice(self, dcm, img_result, center, theta=np.linspace(0, 2 * np.pi, 360)):
         (center_x, center_y) = center
-        fig, axes = plt_subplots(3, 1)
+        fig, axes = plt_subplots(4, 1)
         fig.set_size_inches(8, 16)
         fig.tight_layout(pad=4)
 
@@ -175,30 +176,36 @@ class ACRObjectDetectability(HazenTask):
         axes[0].set_title("Window Leveled + Centroid Location")
 
         # DoG
-        axes[1].imshow(img_result['img'][1])
+        axes[1].imshow(img_result['img'][1], cmap='viridis')
         axes[1].axis("off")
         axes[1].set_title("Difference of Gaussians")
 
-        axes[2].imshow(img_result['img'][2], cmap='gray', vmin=0, vmax=255)
+        # Dilated
+        axes[2].imshow(img_result['img'][2], cmap='viridis')
+        axes[2].axis("off")
+        axes[2].set_title("Filtered (binarized + dilated)")
+
+        #axes[2].imshow(img_result['img'][2], cmap='gray', vmin=0, vmax=255)
+        axes[3].imshow(img_result['img'][3], cmap='viridis')
         for spoke in img_result['spokes']:
             spot_center1, spot_center2, spot_center3 = spoke['centers']
-            axes[2].plot(
+            axes[3].plot(
                 self.r_spot * np.cos(theta) + spot_center1[0],
                 self.r_spot * np.sin(theta) + spot_center1[1],
                 c="green",
             )
-            axes[2].plot(
+            axes[3].plot(
                 self.r_spot * np.cos(theta) + spot_center2[0],
                 self.r_spot * np.sin(theta) + spot_center2[1],
                 c="green",
             )
-            axes[2].plot(
+            axes[3].plot(
                 self.r_spot * np.cos(theta) + spot_center3[0],
                 self.r_spot * np.sin(theta) + spot_center3[1],
                 c="green",
             )
-        axes[2].axis("off")
-        axes[2].set_title("Valid Spokes (dilated)")
+        axes[3].axis("off")
+        axes[3].set_title("Valid Spokes (dilated)")
 
         img_path = os.path.realpath(
             os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
@@ -216,8 +223,25 @@ class ACRObjectDetectability(HazenTask):
         x, y = self.calculate_spot_location(center, angle, spot_separation, spot)
         return create_circular_roi_at(img, spot_radius, x, y), (x, y)
 
+    def detect_spot2(self, img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, spot):
+        x, y = self.calculate_spot_location(center, angle, spot_separation, spot)
+        patch_roi = create_circular_roi_at(img.copy(), patch_radius, x, y)
+        #patch_roi[patch_roi.mask] = 0
+        #debug_image_sample(patch_roi)
+        peak = self.ACR_obj.find_n_highest_peaks(patch_roi.flatten(), 1)
+        try:
+            x, y = np.divmod(peak[0][0], patch_roi.shape[1])
+            spot_roi = create_circular_roi_at(img, spot_radius, x, y) #, (x, y)
+            logger.info(f'??? {(x, y)}')
+            return spot_roi, (x, y)
+        except:
+            spot_roi = create_circular_roi_at(img, spot_radius, x, y)
+            spot_roi = np.zeros(spot_roi.shape, spot_roi.dtype)
+            return spot_roi, (x, y)
+
     def detect_spoke(self, img, center, slice_num, spoke):
         spot_radius = int(np.ceil(self.SPOKE_RADII[spoke] / self.ACR_obj.dx))
+        patch_radius = int(np.ceil(self.ORIG_SPOKE_RADII[spoke] * 1.5 / self.ACR_obj.dx))
         spot_separation = self.DOT_SEPARATION / self.ACR_obj.dx
         angle = self.START_ANGLE - (spoke * self.DOT_ANGLE) - (self.SLICE_ANGLE_OFFSET * slice_num)
 
@@ -225,6 +249,9 @@ class ACRObjectDetectability(HazenTask):
         spot1 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 1)
         spot2 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 2)
         spot3 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 3)
+        #spot1 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 1)
+        #spot2 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 2)
+        #spot3 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 3)
 
         return spot1, spot2, spot3
 
@@ -238,9 +265,8 @@ class ACRObjectDetectability(HazenTask):
     @staticmethod
     def binarize(img, mask=None):
         bin = expand_data_range(img, target_type=np.uint8)
-        sample = bin if mask is None else bin[mask]
-        #thr = ACRObject.compute_percentile(bin, 98.7)
-        thr = ACRObject.compute_percentile(bin, 98)
+        #thr = ACRObject.compute_percentile(bin, 98.7) #97
+        thr = ACRObject.compute_percentile(bin, 98.7)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -264,9 +290,9 @@ class ACRObjectDetectability(HazenTask):
     def get_img_center(self, img):
         (center_x, center_y), _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
         offsetted_y = np.round(center_y + 7 / self.ACR_obj.dy)
-        return (np.round(center_x - self.ACR_obj.dy), np.round(offsetted_y))
+        return (np.round(center_x - self.ACR_obj.dx), np.round(offsetted_y))
 
-    def detect_objects(self, img, slice_num):
+    def detect_objects(self, img, field_strength, slice_num):
         slice_id = 8 + slice_num
         logger.info(f'Processing slice # {slice_id}')
 
@@ -275,7 +301,18 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Phantom centroid set to {(center_x, center_y)} for slice {slice_id}!')
 
         # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
-        noise_removed = self.ACR_obj.filter_with_gaussian(img)
+        # Now, testing against the GE test dataset with a 512x512 matrix from a 1.5T scanner, my algorithm favors a sigma
+        # of 1 or higher. Testing against high resolution Philips 3T dataset favors a fractional sigma <= 0.5.
+        # The issue is that the GE dataset represents a noisy 1.5T scan acquisition with enough SNR for a human
+        # to make a judgement call biased towards overestimating spoke count. This same noise causes a small
+        # overestimation from the algorithm on the worst case slice due to two areas of high SNR. However, that GE slice
+        # should have yielded 0 valid spokes. As a result, the compromise seems to lie somewhere between a 0.3 to 0.5
+        # factor which adjusted by the pixel resolution will yield a sigma > 0.5 for the high resolution GE and
+        # 0.3 for the lower (1mm) resolution acquisitions.
+        resolution_factor = 1 / self.ACR_obj.dx
+        logger.info(f'??? {resolution_factor}')
+        noise_removed = self.ACR_obj.filter_with_gaussian(img, 0.3 * resolution_factor)
+        #noise_removed = img
 
         # Now, we can ready the ROI on which to focus on extracting the signal
         inner_roi = create_circular_roi_at(noise_removed, self.r_inner, center_x, center_y)
@@ -290,18 +327,21 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Target Windowing => {center}, {width}')
 
         # Apply the previously computed window settings to the inner ROI window.
-        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 1.5)
+        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 2 * resolution_factor)
 
         # Perform Difference of Gaussians to further isolate relevant pixels
         # Using a large gamma to allow high intensities to survive the DoG operation.
-        # Gamma correction has a profound effect on remaining signal just like the selection of sigma2.
+        # Gamma correction can have a profound effect on remaining signal just like the selection of the sigmas.
         # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
         # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
-        dog = self.ACR_obj.filter_with_dog(contrasted, 0.5 / self.ACR_obj.dx, 1.5 / self.ACR_obj.dx, gamma=20)
+        factor = 3 / field_strength
+        dog = self.ACR_obj.filter_with_dog(contrasted, (0.1 * factor) / self.ACR_obj.dx, (1.5 * factor) / self.ACR_obj.dx)
+        dog = self.ACR_obj.filter_with_gaussian(dog, 0.5 / self.ACR_obj.dx)
+        #dog =cv2.Laplacian(contrasted, cv2.CV_16U)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
-        binarized = self.binarize(dog)
+        binarized = self.binarize(dog.copy())
 
         # Dilate the signal that is present.
         dilated = cv2.dilate(binarized, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
@@ -317,7 +357,7 @@ class ACRObjectDetectability(HazenTask):
 
         return {
             'id': slice_id,
-            'img': [windowed, dog, dilated],
+            'img': [windowed, dog, dilated, dilated],
             'spokes': [spoke for spoke in results.values()],
             'score': len(results),
             'center': (center_x, center_y)
@@ -336,13 +376,18 @@ class ACRObjectDetectability(HazenTask):
         Returns:
             float: value of integral uniformity.
         """
+        field_strength = slices[-1].MagneticFieldStrength
+
         results = {
-            "meta": {},
+            "meta": {
+                "field_strength": field_strength,
+                "score": 0
+            },
             "data": {}
         }
 
         # Run processing jobs
-        jobs = [(slices[i].pixel_array, i) for i in range(4)]
+        jobs = [(slices[i].pixel_array, field_strength, i) for i in range(4)]
         result_data = wait_on_parallel_results(self.detect_objects, jobs)
 
         # Collect data and final score
@@ -352,7 +397,6 @@ class ACRObjectDetectability(HazenTask):
             score += results["data"][i]['score']
 
         # Append meta data about results
-        results["meta"]["field_strength"] = slices[-1].MagneticFieldStrength
         results["meta"]["score"] = score
         logger.info(results["meta"])
 
