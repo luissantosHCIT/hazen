@@ -442,7 +442,7 @@ class ACRSpatialResolution(HazenTask):
         cxy, _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
 
         ramp_x = int(cxy[0])
-        ramp_y = self.y_position_for_ramp(img, cxy)
+        ramp_y = int(self.y_position_for_ramp(img, cxy))
         width = int(13 * img.shape[0] / 256)
         crop_img = self.crop_image(img, ramp_x, ramp_y, width)
         edge_type, direction = self.get_edge_type(crop_img)
