@@ -499,18 +499,20 @@ class ACRObject:
 
         """
         dtype = data.dtype
-        g = 1 / gamma
-        correction = 0.5 if gamma != 1.0 else 0
-        inverse_correction = np.power(correction, g)
         working_data = ACRObject.normalize(data.copy(), max=1, dtype=cv2.CV_32FC1)
-        working_data = np.power(working_data + correction, g)
         for i in range(iterations):
+            working_data = ACRObject.apply_gamma_correction(working_data, gamma)
             blurred = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma1, sigmaY=sigma1)
             blurred2 = cv2.GaussianBlur(blurred, ksize, sigmaX=sigma2, sigmaY=sigma2)
             working_data = cv2.subtract(blurred, blurred2)
-        working_data = working_data - inverse_correction
         working_data = expand_data_range(working_data, target_type=dtype)
         return working_data
+
+    @staticmethod
+    def apply_gamma_correction(data, gamma):
+        g = 1 / gamma
+        correction = 0.5 if gamma != 1.0 else 0
+        return np.power(data + correction, g)
 
     @staticmethod
     def filter_with_gaussian(data, sigma=1, ksize=(0, 0), dtype=np.uint16):

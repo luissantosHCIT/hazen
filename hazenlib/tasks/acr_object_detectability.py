@@ -343,7 +343,7 @@ class ACRObjectDetectability(HazenTask):
         noise_roi[noise_roi.mask] = 0
 
         # Compute the window level and width in the noise sampling area.
-        center, width = self.ACR_obj.compute_width_and_center(noise_roi)
+        center, width = self.ACR_obj.compute_center_and_width(noise_roi)
         logger.info(f'Target Windowing => {center}, {width}')
 
         # Apply the previously computed window settings to the inner ROI window.
