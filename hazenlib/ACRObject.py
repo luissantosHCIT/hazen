@@ -153,8 +153,8 @@ class ACRObject:
         """
         logger.info("Detecting centroid location ...")
         detected_circles = detect_centroid(img, dx, dy)
-        centre_x = np.round(detected_circles[0])
-        centre_y = np.round(detected_circles[1])
+        centre_x = np.round(detected_circles[1])
+        centre_y = np.round(detected_circles[0])
         radius = np.round(detected_circles[2])
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
@@ -358,7 +358,7 @@ class ACRObject:
         return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
 
     @staticmethod
-    def compute_width_and_center(data):
+    def compute_center_and_width(data):
         """Automatically resolves the center and width settings from the given data. If you wish to derive the
         center and width from roi
 

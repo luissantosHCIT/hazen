@@ -683,6 +683,34 @@ def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
     return np.ceil(np.divide(np.sqrt(np.divide(area, np.pi)) * conversion_value, voxel_resolution)).astype(int)
 
 
+def create_cross_mask(img, width, x_coord, y_coord):
+    """Generates a mask for an roi at the given coordinates
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    grid = np.zeros(img.shape, dtype=np.bool_)
+    length = int(2 * width)
+    half_length = int(length / 2)
+    half_width = int(width / 2)
+    quarter_width = int(width / 4)
+
+    x_start = int(x_coord - quarter_width)
+    y_start = int(y_coord - half_length)
+    grid[x_start: x_start + half_width, y_start: y_start + length] = True
+
+    x_start = int(x_coord - half_length)
+    y_start = int(y_coord - quarter_width)
+    grid[x_start: x_start + length, y_start: y_start + half_width] = True
+    return grid
+
+
 def create_circular_mask(img, radius, x_coord, y_coord):
     """Generates a mask for an roi at the given coordinates
 
@@ -732,6 +760,24 @@ def create_circular_mean_kernel(radius):
     return mask / mask.sum()
 
 
+def create_cross_roi_at(img, width, x_coord, y_coord):
+    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
+    math operations.
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        radius (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    mask = create_cross_mask(img, width, x_coord, y_coord)
+    masked_img = np.ma.masked_array(img.copy(), mask=~mask, fill_value=0)
+    return masked_img
+
+
 def create_circular_roi_at(img, radius, x_coord, y_coord):
     """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
     math operations.
@@ -778,7 +824,8 @@ def detect_roi_center(img, argx):
         y_coord (int): y coordinate of the center of the roi
     """
     height, width = img.shape
-    return np.divmod(argx, width)
+    y, x = np.divmod(argx, width)  # returns x //y, x % y per docs but x is found with x % y
+    return x, y
 
 
 def wait_on_parallel_results(fxn, arg_list=[]):
