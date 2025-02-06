@@ -683,7 +683,7 @@ def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
     return np.ceil(np.divide(np.sqrt(np.divide(area, np.pi)) * conversion_value, voxel_resolution)).astype(int)
 
 
-def create_cross_mask(img, width, x_coord, y_coord):
+def create_cross_mask(img, length, x_coord, y_coord):
     """Generates a mask for an roi at the given coordinates
 
     Args:
@@ -696,18 +696,19 @@ def create_cross_mask(img, width, x_coord, y_coord):
         np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
     """
     grid = np.zeros(img.shape, dtype=np.bool_)
-    length = int(2 * width)
-    half_length = int(length / 2)
-    half_width = int(width / 2)
-    quarter_width = int(width / 4)
 
-    x_start = int(x_coord - quarter_width)
+    height = int(length / 2)
+    half_length = int(length / 2)
+    half_height = int(height / 2)
+    quarter_height = int(height / 4)
+
+    x_start = int(x_coord - quarter_height)
     y_start = int(y_coord - half_length)
-    grid[x_start: x_start + half_width, y_start: y_start + length] = True
+    grid[y_start: y_start + length, x_start: x_start + half_height] = True
 
     x_start = int(x_coord - half_length)
-    y_start = int(y_coord - quarter_width)
-    grid[x_start: x_start + length, y_start: y_start + half_width] = True
+    y_start = int(y_coord - quarter_height)
+    grid[y_start: y_start + half_height, x_start: x_start + length] = True
     return grid
 
 
