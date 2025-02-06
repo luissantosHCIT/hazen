@@ -4,7 +4,8 @@ import scipy
 import skimage
 import numpy as np
 from hazenlib.logger import logger
-from hazenlib.utils import determine_orientation, detect_circle, detect_centroid
+from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range, \
+    create_circular_kernel
 
 
 class ACRObject:
@@ -25,12 +26,14 @@ class ACRObject:
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
         self.dx, self.dy = dcm_list[0].PixelSpacing
+        logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
         # Perform sorting of the input DICOM list based on position
         sorted_dcms = self.sort_dcms(dcm_list)
 
         # Perform sorting of the image slices based on phantom orientation
         self.slice_stack = self.order_phantom_slices(sorted_dcms)
+        logger.info(f'Ordered slices => {[sl.InstanceNumber for sl in self.slice_stack]}')
 
     def sort_dcms(self, dcm_list):
         """Sort a stack of DICOM images based on slice position.
@@ -150,9 +153,9 @@ class ACRObject:
         """
         logger.info("Detecting centroid location ...")
         detected_circles = detect_centroid(img, dx, dy)
-        centre_x = round(detected_circles[0])
-        centre_y = round(detected_circles[1])
-        radius = round(detected_circles[2])
+        centre_x = np.round(detected_circles[1])
+        centre_y = np.round(detected_circles[0])
+        radius = np.round(detected_circles[2])
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
         return (centre_x, centre_y), radius
@@ -315,3 +318,215 @@ class ACRObject:
         peak_locs = pk_ind[(-pk_heights).argsort()[:n]]  # find n highest peak locations
 
         return np.sort(peak_locs), np.sort(peak_heights)
+
+    @staticmethod
+    def apply_window_width_center(data, center, width):
+        """Filters data by the specified center and width.
+
+        ::
+
+            Murphy A, Wilczek M, Feger J, et al. Windowing (CT). Reference article,
+            Radiopaedia.org (Accessed on 24 Jan 2025) https://doi.org/10.53347/rID-52108
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+
+        Returns:
+            np.ndarray: Scaled data
+
+        """
+        dtype = data.dtype
+        try:
+            dtype_max = np.iinfo(dtype).max
+        except:
+            dtype_max = np.finfo(dtype).max
+        half_width = width / 2
+        upper_grey = center + half_width
+        lower_grey = center - half_width
+        logger.info(f'Applying Window Settings from => Center: {center} Width: {width}')
+        logger.info(f'Window Thresholds => Upper Threshold: {upper_grey} Lower Threshold: {lower_grey}')
+        upper_mask = data > upper_grey
+        lower_mask = data < lower_grey
+        mid_mask = upper_mask & lower_mask
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[lower_mask] = 0
+        masked_data[upper_mask] = dtype_max
+        # Stretch center values across the data type range
+        return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
+
+    @staticmethod
+    def compute_center_and_width(data):
+        """Automatically resolves the center and width settings from the given data. If you wish to derive the
+        center and width from roi
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data to perform center and width calculation
+
+        Returns:
+            tuple of int:
+                center (float): The desired Window Center setting. \n
+                width (float): The desired Window Width setting.
+
+        """
+        width = np.std(data)
+        return np.round(ACRObject.compute_data_mode(data)), np.round(width)
+
+    @staticmethod
+    def compute_data_mode(data):
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=100)
+        mode = bins[np.argmax(hist)]
+        logger.info(f'Computed mode: {mode}')
+        return mode
+
+    @staticmethod
+    def compute_percentile(data, percentile):
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        try:
+            non_zero_data = data[np.nonzero(data)]
+            return np.percentile(non_zero_data, percentile)
+        except:
+            return 0
+
+    @staticmethod
+    def compute_percentile_median(data, percentile):
+        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mode (float): non-zero mode of the dataset.
+
+        """
+        perc = ACRObject.compute_percentile(data, percentile)
+        perc_data = data[data >= perc]
+        return np.median(perc_data)
+
+    @staticmethod
+    def threshold_data(data, intensity, fill=0, greater_than=False):
+        """Thresholds the data. Meaning, every pixel with value < intensity or > intensity will be replaced by the
+        value in fill. Which side to fill with fill value is driven by the greater_than flag. By default,
+        we do the former.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+            intensity (float): pixel value to use as the threshold
+            fill (float, optional): pixel value to use as replacement. Defaults to 0.
+            greater_than (bool, optional): Do we fill values that are greater than the specified threshold? Defaults to False.
+
+        Returns:
+            data (np.ndarray|np.ma.MaskedArray): data reference.
+
+        """
+        mask = data >= intensity if greater_than else data <= intensity
+        data[mask] = fill
+        return data
+
+    @staticmethod
+    def filter_with_dog(data, sigma1=1, sigma2=2, gamma=1.0, iterations=1, ksize=(0, 0)):
+        """Performs two Gaussian convolutions with each taking a sigma. Subtracts the second from the first. The idea is
+        to eliminate noise.
+
+        Steps:
+        ______
+
+            #. Copy the input data
+            #. Normalize input data to range [0, 1.0]
+            #. Offset results by 0.5 to avoid numpy.power() error message if gamma is not 1.
+            #. Apply gamma correction
+            #. Obtain 1st Gaussian blurred image using sigma1 for both sigmaX and sigmaY.
+            #. Obtain 2nd Gaussian blurred image using sigma2 for both sigmaX and sigmaY.
+            #. Subtract => 1 - 2
+            #. Remove the offset
+            #. Repeat 4 - 8 for n iterations
+            #. Restore results intensity range to the input's data type.
+            #. Return results
+
+        Notes:
+        ______
+
+        Per my testing, this implementation is equivalent to `skimage.filters.difference_of_gaussians` when results are
+        binarized. However, there is one fundamental difference and that is that the results there come centered as a
+        bellshape which preserve grays. My implementation does not do that. It truly generates pixel subtractions
+        for the same input.
+
+        To better mirror the way GIMP implements a difference of Gaussians, I added gamma correction using the
+        `Power Law Transform <https://pyimagesearch.com/2015/10/05/opencv-gamma-correction/>`_ on the blurred
+        intermediates. The idea is that we can force some of the pixels that are closer to the background closer to 0,
+        which can be filtered out elsewhere in your algorithm. Conversely, if you use a larger gamma value, you can
+        increase the intensity of pixels and thus bias the output signal towards more surviving pixels if the output
+        is meant to be used in a subtraction or threshold operation. Leave the gamma as sis if you simply want
+        a DoG without gamma correction.
+
+        An initial offset of 0.5 is applied to the data if gamma != 1.0 to avoid the following error in numpy.power()!
+
+        .. error::
+
+            line 4658, in _lerp
+            subtract(b, diff_b_a * (1 - t), out=lerp_interpolation, where=t >= 0.5,
+            ValueError: output array is read-only
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+            sigma1 (float, optional): sigma for the first Gaussian operation. Defaults to 1.
+            sigma2 (float, optional): sigma for the second Gaussian operation. This should be bigger than the first value. Defaults to 2.
+            gamma (float, optional): value to multiply against each resulting difference to enhance contrast. Defaults to 1.
+            iterations (int, optional): How many DoG passes to do. Defaults to 1.
+
+        Returns:
+            data (np.ndarray|np.ma.MaskedArray): data reference.
+
+        """
+        dtype = data.dtype
+        working_data = ACRObject.normalize(data.copy(), max=1, dtype=cv2.CV_32FC1)
+        for i in range(iterations):
+            working_data = ACRObject.apply_gamma_correction(working_data, gamma)
+            blurred = cv2.GaussianBlur(working_data, ksize, sigmaX=sigma1, sigmaY=sigma1)
+            blurred2 = cv2.GaussianBlur(blurred, ksize, sigmaX=sigma2, sigmaY=sigma2)
+            working_data = cv2.subtract(blurred, blurred2)
+        working_data = expand_data_range(working_data, target_type=dtype)
+        return working_data
+
+    @staticmethod
+    def apply_gamma_correction(data, gamma):
+        g = 1 / gamma
+        correction = 0.5 if gamma != 1.0 else 0
+        return np.power(data + correction, g)
+
+    @staticmethod
+    def filter_with_gaussian(data, sigma=1, ksize=(0, 0), dtype=np.uint16):
+        noise_removed = cv2.GaussianBlur(data, ksize=ksize, sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_ISOLATED)
+        return expand_data_range(noise_removed, target_type=dtype)
+
+    @staticmethod
+    def normalize(data, max=255, dtype=cv2.CV_8U):
+        return cv2.normalize(
+            src=data,
+            dst=None,
+            alpha=0,
+            beta=max,
+            norm_type=cv2.NORM_MINMAX,
+            dtype=dtype,
+        )
+
