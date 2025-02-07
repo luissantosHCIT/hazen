@@ -355,7 +355,10 @@ class ACRObject:
         masked_data[lower_mask] = 0
         masked_data[upper_mask] = dtype_max
         # Stretch center values across the data type range
-        return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
+        logger.info(masked_data.min())
+        logger.info(masked_data.max())
+        #return expand_data_range(masked_data, valid_range=(lower_grey, upper_grey), target_type=dtype)
+        return masked_data
 
     @staticmethod
     def compute_center_and_width(data):
@@ -372,7 +375,7 @@ class ACRObject:
 
         """
         width = np.std(data)
-        return np.round(ACRObject.compute_data_mode(data)), np.round(width)
+        return np.round(np.mean(data)), np.round(width)
 
     @staticmethod
     def compute_data_mode(data):
@@ -386,7 +389,7 @@ class ACRObject:
 
         """
         search_data = data[data > 0]
-        hist, bins = np.histogram(search_data, bins=100)
+        hist, bins = np.histogram(search_data, bins=256)
         mode = bins[np.argmax(hist)]
         logger.info(f'Computed mode: {mode}')
         return mode
@@ -529,4 +532,61 @@ class ACRObject:
             norm_type=cv2.NORM_MINMAX,
             dtype=dtype,
         )
+
+    @staticmethod
+    def crop_image(img, x, y, width):
+        """Return a rectangular subset of a pixel array
+
+        Args:
+            img (np.ndarray): dcm.pixelarray
+            x (int): x coordinate of centre
+            y (int): y coordinate of centre
+            width (int): size of the array top subset
+
+        Returns:
+            np.ndarray: subset of a pixel array with given width
+        """
+        crop_x, crop_y = ((
+            int(x - width / 2),
+            int(x + width / 2)),
+                          (
+            int(y - width / 2),
+            int(y + width / 2),
+        ))
+        crop_img = img[crop_y[0]:crop_y[1], crop_x[0]:crop_x[1]]
+
+        return crop_img
+
+    @staticmethod
+    def calculate_MTF(erf, dx, dy):
+        """Calculate MTF
+
+        Args:
+            erf (np.array): array of ?
+
+        Returns:
+            tuple: freq, lsf, MTF
+        """
+        lsf = np.diff(erf)
+        N = len(lsf)
+        n = (
+            np.arange(-N / 2, N / 2)
+            if N % 2 == 0
+            else np.arange(-(N - 1) / 2, (N + 1) / 2)
+        )
+
+        resamp_factor = 8
+        Fs = 1 / (
+            np.sqrt(np.mean(np.square((dx, dy))))
+            * (1 / resamp_factor)
+        )
+        freq = n * Fs / N
+        MTF = np.abs(np.fft.fftshift(np.fft.fft(lsf)))
+        MTF = MTF / np.max(MTF)
+
+        zero_freq = np.where(freq == 0)[0][0]
+        freq = freq[zero_freq:]
+        MTF = MTF[zero_freq:]
+
+        return freq, lsf, MTF
 
