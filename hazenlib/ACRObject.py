@@ -320,7 +320,7 @@ class ACRObject:
         return np.sort(peak_locs), np.sort(peak_heights)
 
     @staticmethod
-    def apply_window_width_center(data, center, width):
+    def apply_window_center_width(data, center, width):
         """Filters data by the specified center and width.
 
         ::
@@ -345,17 +345,16 @@ class ACRObject:
         half_width = width / 2
         upper_grey = center + half_width
         lower_grey = center - half_width
-        logger.info(f'Applying Window Settings from => Center: {center} Width: {width}')
+        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
         logger.info(f'Window Thresholds => Upper Threshold: {upper_grey} Lower Threshold: {lower_grey}')
-        upper_mask = data > upper_grey
-        lower_mask = data < lower_grey
+        logger.info(f'Window Max Value: {dtype_max} [{dtype}]')
+        upper_mask = data >= upper_grey
+        lower_mask = data <= lower_grey
         mid_mask = upper_mask & lower_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[lower_mask] = 0
-        masked_data[upper_mask] = dtype_max
-        # Stretch center values across the data type range
-        return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
+        masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
+        return masked_data
 
     @staticmethod
     def compute_center_and_width(data):
@@ -371,12 +370,11 @@ class ACRObject:
                 width (float): The desired Window Width setting.
 
         """
-        width = np.std(data)
-        return np.round(ACRObject.compute_data_mode(data)), np.round(width)
+        return np.round(ACRObject.compute_histogram_mean(data)), np.round(ACRObject.compute_histogram_width(data))
 
     @staticmethod
-    def compute_data_mode(data):
-        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+    def compute_histogram_mode(data):
+        """Computes the mode of the given dataset using a 256 bins histogram. This method ignores the zeros.
 
         Args:
             data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
@@ -386,10 +384,46 @@ class ACRObject:
 
         """
         search_data = data[data > 0]
-        hist, bins = np.histogram(search_data, bins=100)
+        hist, bins = np.histogram(search_data, bins=256)
         mode = bins[np.argmax(hist)]
         logger.info(f'Computed mode: {mode}')
         return mode
+
+    @staticmethod
+    def compute_histogram_mean(data):
+        """Computes the mean of the given dataset using a 256 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mean (float): non-zero mean of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=256)
+        logger.info(np.mean(bins))
+        mean = np.mean(bins)
+        logger.info(f'Computed mean: {mean}')
+        return mean
+
+    @staticmethod
+    def compute_histogram_width(data):
+        """Computes the width of the given dataset using a 256 bins histogram.
+        This method ignores the zeros. The width is computed as bins.max() - bins.min()
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            std (float): non-zero std of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=256)
+        std = bins.max() - bins.min()
+        logger.info(f'Computed width: {std}')
+        return std
 
     @staticmethod
     def compute_percentile(data, percentile):
