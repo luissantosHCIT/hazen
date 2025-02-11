@@ -139,7 +139,7 @@ class ACRObjectDetectability(HazenTask):
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_binarization_sample = compute_radius_from_area(45, self.ACR_obj.dx)
         # Required pixel radius to produce ~15cm2 ROI
-        self.r_noise = compute_radius_from_area(15, self.ACR_obj.dx)
+        self.r_noise = compute_radius_from_area(30, self.ACR_obj.dx)
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_spot = compute_radius_from_area(0.25, self.ACR_obj.dx)
 
@@ -286,7 +286,7 @@ class ACRObjectDetectability(HazenTask):
     def binarize(img, mask=None):
         bin = expand_data_range(img, target_type=np.uint8)
         #thr = ACRObject.compute_percentile(bin, 98.7) #97
-        thr = ACRObject.compute_percentile(bin, 98.7)
+        thr = ACRObject.compute_percentile(bin, 92)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -320,22 +320,8 @@ class ACRObjectDetectability(HazenTask):
         (center_x, center_y) = self.get_img_center(img)
         logger.info(f'Phantom centroid set to {(center_x, center_y)} for slice {slice_id}!')
 
-        # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
-        # Now, testing against the GE test dataset with a 512x512 matrix from a 1.5T scanner, my algorithm favors a sigma
-        # of 1 or higher. Testing against high resolution Philips 3T dataset favors a fractional sigma <= 0.5.
-        # The issue is that the GE dataset represents a noisy 1.5T scan acquisition with enough SNR for a human
-        # to make a judgement call biased towards overestimating spoke count. This same noise causes a small
-        # overestimation from the algorithm on the worst case slice due to two areas of high SNR. However, that GE slice
-        # should have yielded 0 valid spokes. As a result, the compromise seems to lie somewhere between a 0.3 to 0.5
-        # factor which adjusted by the pixel resolution will yield a sigma > 0.5 for the high resolution GE and
-        # 0.3 for the lower (1mm) resolution acquisitions.
-        resolution_factor = 1 / self.ACR_obj.dx
-        logger.info(f'??? {resolution_factor}')
-        noise_removed = self.ACR_obj.filter_with_gaussian(img, 0.3 * resolution_factor)
-        #noise_removed = img
-
         # Now, we can ready the ROI on which to focus on extracting the signal
-        inner_roi = create_circular_roi_at(noise_removed, self.r_inner, center_x, center_y)
+        inner_roi = create_circular_roi_at(img, self.r_inner, center_x, center_y)
         inner_roi[inner_roi.mask] = 0
 
         # Find noise sampling ROI
@@ -347,7 +333,21 @@ class ACRObjectDetectability(HazenTask):
         logger.info(f'Target Windowing => {center}, {width}')
 
         # Apply the previously computed window settings to the inner ROI window.
-        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 2 * resolution_factor)
+        contrasted = self.ACR_obj.apply_window_center_width(inner_roi, center, width * field_strength)
+
+        # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
+        # Now, testing against the GE test dataset with a 512x512 matrix from a 1.5T scanner, my algorithm favors a sigma
+        # of 1 or higher. Testing against high resolution Philips 3T dataset favors a fractional sigma <= 0.5.
+        # The issue is that the GE dataset represents a noisy 1.5T scan acquisition with enough SNR for a human
+        # to make a judgement call biased towards overestimating spoke count. This same noise causes a small
+        # overestimation from the algorithm on the worst case slice due to two areas of high SNR. However, that GE slice
+        # should have yielded 0 valid spokes. As a result, the compromise seems to lie somewhere between a 0.3 to 0.5
+        # factor which adjusted by the pixel resolution will yield a sigma > 0.5 for the high resolution GE and
+        # 0.3 for the lower (1mm) resolution acquisitions.
+        resolution_factor = 1 / self.ACR_obj.dx
+        logger.info(f'??? {resolution_factor}')
+        noise_removed = self.ACR_obj.filter_with_gaussian(contrasted, 0.7 * resolution_factor)
+        noise_removed = np.ma.masked_array(noise_removed, mask=inner_roi.mask, fill_value=0)
 
         # Perform Difference of Gaussians to further isolate relevant pixels
         # Using a large gamma to allow high intensities to survive the DoG operation.
@@ -355,9 +355,8 @@ class ACRObjectDetectability(HazenTask):
         # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
         # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
         factor = 3 / field_strength
-        dog = self.ACR_obj.filter_with_dog(contrasted, (0.1 * factor) / self.ACR_obj.dx, (1.5 * factor) / self.ACR_obj.dx)
+        dog = self.ACR_obj.filter_with_dog(noise_removed, (0.1 * factor) / self.ACR_obj.dx, (1.5 * factor) / self.ACR_obj.dx)
         dog = self.ACR_obj.filter_with_gaussian(dog, 0.5 / self.ACR_obj.dx)
-        #dog =cv2.Laplacian(contrasted, cv2.CV_16U)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
@@ -384,11 +383,10 @@ class ACRObjectDetectability(HazenTask):
         }
 
     def get_spokes_and_scores(self, slices):
-        """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
-        Iterates with a ~1 cm^2 ROI through a ~200 cm^2 ROI inside the phantom region,
-        and calculates the mean non-zero pixel value inside each ~1 cm^2 ROI. \n
-        The PIU is defined as: `PIU = 100 * (1 - (max - min) / (max + min))`, where \n
-        'max' and 'min' represent the maximum and minimum of the mean non-zero pixel values of each ~1 cm^2 ROI.
+        """For each slice, we go through a series of image filtering steps. Once the image is sufficiently filtered,
+        we then predict where spot ROIs are expected to be. If the ROI captures a population of intensities > 0, the
+        spot is considered valid. Three valid spots in a radial pattern yields a valid spoke. Scoring stops at the
+        first incomplete spoke. We then collect the per slice and overall scores as well as
 
         Args:
             dcm (pydicom.Dataset): DICOM image object to calculate uniformity from.
