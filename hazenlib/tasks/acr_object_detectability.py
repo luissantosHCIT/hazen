@@ -74,12 +74,12 @@ The Hough Transform does not work reliably for this task. You really are looking
 detection. DoG returns a decently cleaned image for further analysis. The result is just not easy to clean via
 thresholding.
 
-TL;DR; I definitely need to return to this task and try a cleaner approach.
+TL;DR; I definitely need to return to this task and try a cleaner approach using blob detection.
 
 Created by Luis M. Santos, M.D.
 luis.santos2@nih.gov
 
-13/01/2022
+02/12/2025
 """
 
 import sys
@@ -139,7 +139,7 @@ class ACRObjectDetectability(HazenTask):
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_binarization_sample = compute_radius_from_area(45, self.ACR_obj.dx)
         # Required pixel radius to produce ~15cm2 ROI
-        self.r_noise = compute_radius_from_area(15, self.ACR_obj.dx)
+        self.r_noise = compute_radius_from_area(30, self.ACR_obj.dx)
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_spot = compute_radius_from_area(0.25, self.ACR_obj.dx)
 
@@ -243,22 +243,6 @@ class ACRObjectDetectability(HazenTask):
         x, y = self.calculate_spot_location(center, angle, spot_separation, spot)
         return create_circular_roi_at(img, spot_radius, x, y), (x, y)
 
-    def detect_spot2(self, img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, spot):
-        x, y = self.calculate_spot_location(center, angle, spot_separation, spot)
-        patch_roi = create_circular_roi_at(img.copy(), patch_radius, x, y)
-        #patch_roi[patch_roi.mask] = 0
-        #debug_image_sample(patch_roi)
-        peak = self.ACR_obj.find_n_highest_peaks(patch_roi.flatten(), 1)
-        try:
-            x, y = np.divmod(peak[0][0], patch_roi.shape[1])
-            spot_roi = create_circular_roi_at(img, spot_radius, x, y) #, (x, y)
-            logger.info(f'??? {(x, y)}')
-            return spot_roi, (x, y)
-        except:
-            spot_roi = create_circular_roi_at(img, spot_radius, x, y)
-            spot_roi = np.zeros(spot_roi.shape, spot_roi.dtype)
-            return spot_roi, (x, y)
-
     def detect_spoke(self, img, center, slice_num, spoke):
         spot_radius = int(np.ceil(self.SPOKE_RADII[spoke] / self.ACR_obj.dx))
         patch_radius = int(np.ceil(self.ORIG_SPOKE_RADII[spoke] * 1.5 / self.ACR_obj.dx))
@@ -269,9 +253,6 @@ class ACRObjectDetectability(HazenTask):
         spot1 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 1)
         spot2 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 2)
         spot3 = self.detect_spot(img, center, angle, spot_separation, spot_radius, 3)
-        #spot1 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 1)
-        #spot2 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 2)
-        #spot3 = self.detect_spot2(img, center, angle, spot_separation, spot_radius, patch_radius, slice_num, 3)
 
         return spot1, spot2, spot3
 
@@ -286,7 +267,8 @@ class ACRObjectDetectability(HazenTask):
     def binarize(img, mask=None):
         bin = expand_data_range(img, target_type=np.uint8)
         #thr = ACRObject.compute_percentile(bin, 98.7) #97
-        thr = ACRObject.compute_percentile(bin, 98.7)
+        #thr = ACRObject.compute_percentile(bin, 92)
+        thr = ACRObject.compute_percentile(bin, 92)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -312,13 +294,105 @@ class ACRObjectDetectability(HazenTask):
         offsetted_y = np.round(center_y + 7 / self.ACR_obj.dy)
         return (np.round(center_x - self.ACR_obj.dx), np.round(offsetted_y))
 
-    def detect_objects(self, img, field_strength, slice_num):
+    def detect_objects(self, dcm, field_strength, slice_num):
+        """Performs all preprocessing steps required to isolate the signal from background. Then, runs an ROI based
+        algorithm to detect the presence of valid spokes in dataset.
+
+        Steps
+        _____
+
+            #. Request presentation level pixel data.
+            #. Finds centroid of data.
+            #. Restrict workspace to the inner ROI in dataset.
+            #. Computes Histogram based Window Center and Window Width
+            #. Performs a small Gaussian pass to denoise the input image.
+            #. Performs Difference of Gaussians (DoG) pass.
+            #. Performs another small Gaussian filter pass to decimate some of the remaining noise.
+            #. Performs binarization of dog based on a percentile.
+            #. Dilate remaining signal since we have destroyed so much of it by this point.
+            #. Detect and count spots/spokes to generate score.
+            #. Return scores and relevant images.
+
+        Notes
+        _____
+
+        ..note::
+
+            The weird Gaussian filtering passes not associated with the DoG have subtle and profound effects on what
+            signal survives all of our filtering levers.
+
+        ..note::
+
+            The DoG implementation used here also allows for the application of gamma correction and multiple passes.
+            However, none of these options ended up being necessary on the final version of this algorithm. I made
+            the implementations available as individual methods in the ACRObject class for other future image
+            manipulation tasks.
+
+        ..warning::
+
+            The scoring algorithm is a very dumb algorithm in that it computes the center of a spot ROI and performs
+            a sum on the captured pixel population. Any values > 0 are assumed to imply that the neighborhood signal
+            must have come from a strong signal. However, this is only an approximation to reality and thus it is
+            weak against inputs that are noisy after all of our filtering steps. As a result, it is strongly encouraged
+            to provide a copy of the dilated output in the report to allow for visual inspection of the noise
+            distribution. I am not clever enough to figure out how to detect this kind of noise after generating
+            results.
+
+        ..alert::
+
+            The GE dataset present in this repository is particularly troublesome because it represents a case in which
+            there is a poor SNR on a high resolution (0.5mm) 512x512 FoV. This is a problem because the ACR prescribed
+            that the matrix has to be 256x256 with a resolution of 1.0mm. The main issue is if I make the algorithm
+            robust to the ACR Phantom requirements, the algorithm becomes weak to the GE data's 8th slice, which is
+            pure noise. The algorithm somehow detects the alignment of the noise spots and yields at least 2 valid
+            spokes when that should not be the case.
+
+        Args:
+            dcm (pydicom.Dataset): DICOM image object to calculate uniformity from.
+            field_strength (float): Scanner field strength parameter. Kinda needed to get the correct level of noise
+                cleaning.
+            slice_num (int): Index of this DICOM slice in the original sorted dicom stack.
+
+        Returns:
+            dict: Relevant results that can be reported on. These include the per slice score and intermediate images.
+
+            .. code-block::
+                :caption: Results Structure!
+
+                {
+                    'id': slice_id,
+                    'img': [windowed, dog, dilated, dilated],
+                    'spokes': [spoke for spoke in results.values()],
+                    'score': len(results),
+                    'center': (center_x, center_y)
+                }
+        """
         slice_id = 8 + slice_num
         logger.info(f'Processing slice # {slice_id}')
+
+        img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
 
         # Step 0, let's obtain a better center
         (center_x, center_y) = self.get_img_center(img)
         logger.info(f'Phantom centroid set to {(center_x, center_y)} for slice {slice_id}!')
+
+        # Now, we can ready the ROI on which to focus on extracting the signal
+        inner_roi = create_circular_roi_at(img, self.r_inner, center_x, center_y)
+        inner_roi[inner_roi.mask] = 0
+
+        # Find noise sampling ROI
+        noise_roi = create_circular_roi_at(inner_roi, self.r_noise, center_x, center_y)
+        noise_roi[noise_roi.mask] = 0
+
+        # Compute the window level and width in the noise sampling area.
+        center, width = self.ACR_obj.compute_center_and_width(noise_roi)
+        logger.info(f'Target Windowing => {center}, {width}')
+
+        # Apply the previously computed window settings to the inner ROI window.
+        # We adjust the windowing here using the clip method which is a custom method. The clip method is not one
+        # of the standard DICOM windowing methods. It is a modified linear exact method except we do not rescale the
+        # window data. Rescaling the window data yields promotion of noise to the same rank as our signal.
+        contrasted = self.ACR_obj.apply_window_center_width(inner_roi, center, width * field_strength, function='clip')
 
         # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
         # Now, testing against the GE test dataset with a 512x512 matrix from a 1.5T scanner, my algorithm favors a sigma
@@ -331,23 +405,8 @@ class ACRObjectDetectability(HazenTask):
         # 0.3 for the lower (1mm) resolution acquisitions.
         resolution_factor = 1 / self.ACR_obj.dx
         logger.info(f'??? {resolution_factor}')
-        noise_removed = self.ACR_obj.filter_with_gaussian(img, 0.3 * resolution_factor)
-        #noise_removed = img
-
-        # Now, we can ready the ROI on which to focus on extracting the signal
-        inner_roi = create_circular_roi_at(noise_removed, self.r_inner, center_x, center_y)
-        inner_roi[inner_roi.mask] = 0
-
-        # Find noise sampling ROI
-        noise_roi = create_circular_roi_at(inner_roi, self.r_noise, center_x, center_y)
-        noise_roi[noise_roi.mask] = 0
-
-        # Compute the window level and width in the noise sampling area.
-        center, width = self.ACR_obj.compute_center_and_width(noise_roi)
-        logger.info(f'Target Windowing => {center}, {width}')
-
-        # Apply the previously computed window settings to the inner ROI window.
-        contrasted = self.ACR_obj.apply_window_width_center(inner_roi, center, width * 2 * resolution_factor)
+        noise_removed = self.ACR_obj.filter_with_gaussian(contrasted, 0.7 * resolution_factor)
+        noise_removed = np.ma.masked_array(noise_removed, mask=inner_roi.mask, fill_value=0)
 
         # Perform Difference of Gaussians to further isolate relevant pixels
         # Using a large gamma to allow high intensities to survive the DoG operation.
@@ -355,9 +414,8 @@ class ACRObjectDetectability(HazenTask):
         # Gamma correction here helps with fine-tuning to approximate what I thought is reality for the GE dataset which
         # was noisier than more ideal scans. GE => gamma = 20, sigma2 = 3.5
         factor = 3 / field_strength
-        dog = self.ACR_obj.filter_with_dog(contrasted, (0.1 * factor) / self.ACR_obj.dx, (1.5 * factor) / self.ACR_obj.dx)
+        dog = self.ACR_obj.filter_with_dog(noise_removed, (0.1 * factor) / self.ACR_obj.dx, (1.5 * factor) / self.ACR_obj.dx)
         dog = self.ACR_obj.filter_with_gaussian(dog, 0.5 / self.ACR_obj.dx)
-        #dog =cv2.Laplacian(contrasted, cv2.CV_16U)
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
@@ -384,17 +442,33 @@ class ACRObjectDetectability(HazenTask):
         }
 
     def get_spokes_and_scores(self, slices):
-        """Calculates the percent integral uniformity (PIU) of a DICOM pixel array. \n
-        Iterates with a ~1 cm^2 ROI through a ~200 cm^2 ROI inside the phantom region,
-        and calculates the mean non-zero pixel value inside each ~1 cm^2 ROI. \n
-        The PIU is defined as: `PIU = 100 * (1 - (max - min) / (max + min))`, where \n
-        'max' and 'min' represent the maximum and minimum of the mean non-zero pixel values of each ~1 cm^2 ROI.
+        """For each slice, we go through a series of image filtering steps. Once the image is sufficiently filtered,
+        we then predict where spot ROIs are expected to be. If the ROI captures a population of intensities > 0, the
+        spot is considered valid. Three valid spots in a radial pattern yields a valid spoke. Scoring stops at the
+        first incomplete spoke. We then collect the per slice and overall scores as well as
 
         Args:
-            dcm (pydicom.Dataset): DICOM image object to calculate uniformity from.
+            slices (list of pydicom.Dataset): list of relevant slices (8 to 11) used for generating ACR scores.
 
         Returns:
-            float: value of integral uniformity.
+            dict: Results including individual slice scores, images, and scanner information.
+
+            .. code-block::
+                :caption: Results Structure!
+
+                {
+                    "meta": {
+                        "field_strength": field_strength,
+                        "slice_scores": [],
+                        "score": 0
+                    },
+                    "data": {
+                        0: {slice results},
+                        1: {slice results},
+                        2: {slice results},
+                        3: {slice results},
+                    }
+                }
         """
         field_strength = slices[-1].MagneticFieldStrength
 
@@ -408,7 +482,7 @@ class ACRObjectDetectability(HazenTask):
         }
 
         # Run processing jobs
-        jobs = [(slices[i].pixel_array, field_strength, i) for i in range(4)]
+        jobs = [(slices[i], field_strength, i) for i in range(4)]
         result_data = wait_on_parallel_results(self.detect_objects, jobs)
 
         # Collect data and final score
