@@ -5,7 +5,7 @@ import skimage
 import numpy as np
 from hazenlib.logger import logger
 from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range, \
-    create_circular_kernel
+    create_circular_kernel, get_datatype_min, get_datatype_max
 
 
 class ACRObject:
@@ -159,6 +159,136 @@ class ACRObject:
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
         return (centre_x, centre_y), radius
+
+    @staticmethod
+    def get_presentation_pixels(dcm):
+        """Automatically resolves the pixel values as would have been expected for presentation.
+        We follow section `C.11.2.1.2.2 General Requirements for Window Center and Window Width <https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html#sect_C.11.2.1.3>`_
+        from the DICOM standard.
+
+        This means we do:
+
+            #. Look for expected windowing function as per section C.11.2.1.3 VOI LUT Function. We default to LINEAR as
+                the LUT Function if no other function is defined.
+            #. Look for Window Center (0028,1050), Window Width (0028,1051) and VOI LUT Function (0028,1056) Attributes.
+                If VOI LUT and Window settings are present, I currently default to the Window Settings and assume the
+                LUT is an alternative or secondary display setting.
+            #. Find max value for pixel array data type.
+            #. Cast initial pixel array to float64 for calculation.
+            #. Apply base rescaling of pixel data.
+            #. Apply window function (default is linear) with default window settings.
+            #. Return transformed data.
+
+        .. note::
+
+            #. For the purpose of this definition, a floating point calculation without integer truncation is assumed,
+                though the manner of implementation may vary as long as the result is the same.
+            #. The pseudo-code function computes a continuous value over the output range without any discontinuity at
+                the boundaries. The value of 0 for w is expressly forbidden, and the value of 1 for w does not cause
+                division by zero, since the continuous segment of the function will never be reached for that case.
+
+            #. For example, for an output range 0 to 255:
+
+                c=2048, w=4096 becomes:
+
+                    if (x <= 0) then y = 0
+
+                    else if (x > 4095) then y = 255
+
+                    else y = ((x - 2047.5) / 4095 + 0.5) * (255-0) + 0
+
+                c=2048, w=1 becomes:
+
+                    if (x <= 2047.5) then y = 0
+
+                    else if (x > 2047.5) then y = 255
+
+                    else /* not reached */
+
+                c=0, w=100 becomes:
+
+                    if (x <= -50) then y = 0
+
+                    else if (x > 49) then y = 255
+
+                    else y = ((x + 0.5) / 99 + 0.5) * (255-0) + 0
+
+                c=0, w=1 becomes:
+
+                    if (x <= -0.5) then y = 0
+
+                    else if (x > -0.5) then y = 255
+
+                    else /* not reached */
+
+            #. A Window Center of 2n-1 and a Window Width of 2n selects the range of input values from 0 to 2n-1.
+                This represents a mathematical identity VOI LUT transformation over the possible input values
+                (whether used or not) in the case where no Modality LUT is specified and the stored pixel data are n
+                bit unsigned integers.
+
+            #. In the case where x1 is the lowest input value actually used in the Pixel Data and x2 is the highest,
+                a Window Center of (x1+x2+1)/2 and a Window Width of (x2-x1+1) selects the range of input values from
+                x1 to x2, which represents the full range of input values present as opposed to possible. This is
+                distinct from the mathematical identity VOI LUT transformation, which instead selects the full range
+                of input values possible as opposed to those actually used. The mathematical identity and full input
+                range transformations are the same when x1 = 0 and x2 is 2n-1 and the input values are n bit unsigned
+                integers. See also Note 7.
+
+            #. A Window Width of 1 is typically used to represent a "threshold" operation in which those integer
+                input values less than the Window Center are represented as the minimum displayed value and those
+                greater than or equal to the Window Center are represented as the maximum displayed value. A Window
+                Width of 2 will have the same result for integral input values.
+
+            #. The application of Window Center (0028,1050) and Window Width (0028,1051) may select a signed input
+                range. There is no implication that this signed input range is clipped to zero.
+
+            #. The selected input range may exceed the actual range of the input values, thus effectively "compressing"
+                the contrast range of the displayed data into a narrower band of the available contrast range, and
+                "flattening" the appearance. There are no limits to the maximum value of the window width, or to the
+                minimum or maximum value of window level, both of which may exceed the actual or possible range of
+                input values.
+
+            #. Input values "below" the window are displayed as the minimum output value and input values "above" the
+                window are displayed as the maximum output value. This is the common usage of the window operation
+                in medical imaging. There is no provision for an alternative approach in which all values "outside"
+                the window are displayed as the minimum output value.
+
+            #. The output of the Window Center/Width or VOI LUT transformation is either implicitly scaled to the
+                full range of the display device if there is no succeeding transformation defined, or implicitly scaled to
+                the full input range of the succeeding transformation step (such as the Presentation LUT), if present.
+                See Section C.11.6.1.
+
+            #. Fractional values of Window Center and Window Width are permitted (since the VR of these Attributes is
+                Decimal String), and though they are not often encountered, applications should be prepared to accept
+                them.
+
+        .. warning::
+
+            I do not implement all aspects of section C.11.2.1.2. Any elements that are found as needed in the wild
+            should be retrospectively implemented.
+
+        Args:
+            dcm (pydicom.Dataset): DICOM instance used to find the default windowing and rescaling settings.
+
+        Returns:
+            raw (np.ndarray): Original pixel array.
+            rescaled (np.ndarray): Rescaled pixel array.
+            presentation (np.ndarray): Presentation ready pixel array.
+
+        """
+        img = dcm.pixel_array
+        dtype = img.dtype
+        slope = dcm.get('RescaleSlope', 1)
+        intercept = dcm.get('RescaleIntercept', 1)
+        center = dcm.get('WindowCenter', None)
+        width = dcm.get('WindowWidth', None)
+        voi_lut_function = dcm.get('VOILUTFunction', 'linear').lower()
+        float_data = img.copy().astype(np.float32)  # Cast to float to maintain precision
+        rescaled = ACRObject.rescale_data(float_data, slope, intercept)
+        windowed = ACRObject.apply_window_center_width(rescaled, center, width, voi_lut_function, dtype)
+        rounded_window = np.round(windowed.data)    # Round so that we have integers. Realistically, we should only be
+                                                    # dealing with uint16, but adjust this step if there's other data.
+        return img, np.round(rescaled).astype(dtype), rounded_window.astype(dtype)  # Cast back to original type, allow truncation
 
     def get_mask_image(self, image, centre, mag_threshold=0.07, open_threshold=500):
         """Create a masked pixel array. \n
@@ -320,8 +450,67 @@ class ACRObject:
         return np.sort(peak_locs), np.sort(peak_heights)
 
     @staticmethod
-    def apply_window_width_center(data, center, width):
-        """Filters data by the specified center and width.
+    def rescale_data(data, slope=1, intercept=0):
+        """Rescales the data by a given slope and intercept.
+
+        The equation is y = mx + b
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            slope (float): The slope m.
+            intercept (float): The intercept b.
+
+        Returns:
+            np.ndarray: Scaled data
+        """
+        return np.add(np.multiply(slope, data), intercept)
+
+    @staticmethod
+    def apply_linear_window_center_width(data, center, width, dtmin=0, dtmax=255):
+        """Filters data by the specified center and width using the DICOM linear equation.
+        See `C.11.2.1.2.1 Default LINEAR Function <https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html#sect_C.11.2.1.2.1>`_.
+
+        ::
+
+            if (x <= c - 0.5 - (w-1) /2), then y = ymin
+            else if (x > c - 0.5 + (w-1) /2), then y = ymax
+            else y = ((x - (c - 0.5)) / (w-1) + 0.5) * (ymax- ymin) + ymin
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+            dtmin (int): The min value of datatype.
+            dtmax (int): The max value of datatype.
+
+        Returns:
+            np.ma.MaskedArray: Windowed data
+        """
+        logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
+        adjusted_width = width - 1
+        half_width = adjusted_width / 2
+        lower_mask = data <= center - 0.5 - half_width
+        upper_mask = data > center - 0.5 + half_width
+        mid_mask = lower_mask & upper_mask
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[lower_mask] = dtmin
+        masked_data[upper_mask] = dtmax
+        masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+        return masked_data
+
+    @staticmethod
+    def apply_linear_exact_window_center_width(data, center, width, dtmin=0, dtmax=255):
+        """Filters data by the specified center and width using the DICOM linear exact equation.
+        See `C.11.2.1.2.1 LINEAR_EXACT Function <https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html#sect_C.11.2.1.3.2>`_.
+
+        ::
+
+            if (x <= c - w/2), then y = ymin
+            else if (x > c + w/2), then y = ymax
+            else y = ((x - c) / w + 0.5) * (ymax- ymin) + ymin
+
+        This equation is similar to described in Radiopaedia
 
         ::
 
@@ -332,30 +521,123 @@ class ACRObject:
             data (np.ndarray): pixel array containing the data to perform peak extraction on
             center (int): The desired Window Center setting.
             width (int): The desired Window Width setting.
+            dtmin (int): The min value of datatype.
+            dtmax (int): The max value of datatype.
 
         Returns:
-            np.ndarray: Scaled data
-
+            np.ma.MaskedArray: Windowed data
         """
-        dtype = data.dtype
-        try:
-            dtype_max = np.iinfo(dtype).max
-        except:
-            dtype_max = np.finfo(dtype).max
+        logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
+        half_width = width / 2
+        lower_mask = data <= center - half_width
+        upper_mask = data > center + half_width
+        mid_mask = lower_mask & upper_mask
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[lower_mask] = dtmin
+        masked_data[upper_mask] = dtmax
+        masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+        return masked_data
+
+    @staticmethod
+    def apply_sigmoid_window_center_width(data, center, width, dtmin=0, dtmax=255):
+        """Filters data by the specified center and width using the DICOM sigmoid equation.
+        See `C.11.2.1.2.1 SIGMOID Function <https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html#sect_C.11.2.1.3.1>`_.
+
+        ::
+
+            y = ((ymax - ymin) / (1 + exp(-4 * (x - c) / w))) + ymin
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+            dtmin (int): The min value of datatype.
+            dtmax (int): The max value of datatype.
+
+        Returns:
+            np.ma.MaskedArray: Windowed data
+        """
+        logger.info(f'Applying Window Settings using the Sigmoid method => Center: {center} Width: {width}')
+        mid_mask = dtmin <= data <= dtmax
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[~mid_mask] = ((dtmax - dtmin) / (1 + np.exp((-4 * masked_data[~mid_mask] - center) / width))) + dtmin
+        return masked_data
+
+    @staticmethod
+    def apply_clip_window_center_width(data, center, width, dtmin=0, dtmax=255):
+        """Filters data by the specified center and width using the custom clip method. This method is not a standard
+        DICOM windowing method. It is a modified form of the linear_exact method. We basically do not rescale the window
+        data. It uses numpy.clip() to generate the window data.
+
+        Somehow, this works better than the linear method for the object detectability task.
+
+        This method is similar to described in Radiopaedia
+
+        ::
+
+            Murphy A, Wilczek M, Feger J, et al. Windowing (CT). Reference article,
+            Radiopaedia.org (Accessed on 24 Jan 2025) https://doi.org/10.53347/rID-52108
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+            dtmin (int): The min value of datatype.
+            dtmax (int): The max value of datatype.
+
+        Returns:
+            np.ma.MaskedArray: Windowed data
+        """
+        logger.info(f'Applying Window Settings using the Clip method => Center: {center} Width: {width}')
         half_width = width / 2
         upper_grey = center + half_width
         lower_grey = center - half_width
-        logger.info(f'Applying Window Settings from => Center: {center} Width: {width}')
-        logger.info(f'Window Thresholds => Upper Threshold: {upper_grey} Lower Threshold: {lower_grey}')
         upper_mask = data > upper_grey
-        lower_mask = data < lower_grey
-        mid_mask = upper_mask & lower_mask
+        lower_mask = data <= lower_grey
+        mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[lower_mask] = 0
-        masked_data[upper_mask] = dtype_max
-        # Stretch center values across the data type range
-        return expand_data_range(masked_data, (lower_grey, upper_grey), dtype)
+        masked_data[lower_mask] = dtmin
+        masked_data[upper_mask] = dtmax
+        masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
+        return masked_data
+
+    @staticmethod
+    def apply_window_center_width(data, center, width, function='linear', dtype=None):
+        """Filters data by the specified center and width. We support 3 functions defined by the DICOM standard. These
+        functions are linear (default), linear_exact, and sigmoid.
+
+        See `DICOM Chapter 11.2 <https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html>`_
+        for more details.
+
+        Each specific function is defined as apply_<function>_window_center_width and each has a copy of the DICOM
+        documentation. See those for details as well.
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+            function (str): Function t apply to data windowing. Defaults to linear.
+            dtype (np.dtype): The data's natural datatype. We use the input's datatype if no specific data type is
+                specified. This parameter is mainly present for other higher level methods to use to maintain
+                logical consistency during processing.
+
+        Returns:
+            np.ma.MaskedArray: Windowed data.
+
+        """
+        dtype = data.dtype if dtype is None else dtype
+        dtype_min = get_datatype_min(dtype)
+        dtype_max = get_datatype_max(dtype)
+        if function == 'linear_exact':
+            return ACRObject.apply_linear_exact_window_center_width(data, center, width, dtype_min, dtype_max)
+        if function == 'sigmoid':
+            return ACRObject.apply_sigmoid_window_center_width(data, center, width, dtype_min, dtype_max)
+        if function == 'clip':
+            return ACRObject.apply_clip_window_center_width(data, center, width, dtype_min, dtype_max)
+        return ACRObject.apply_linear_window_center_width(data, center, width, dtype_min, dtype_max)
 
     @staticmethod
     def compute_center_and_width(data):
@@ -371,12 +653,11 @@ class ACRObject:
                 width (float): The desired Window Width setting.
 
         """
-        width = np.std(data)
-        return np.round(ACRObject.compute_data_mode(data)), np.round(width)
+        return np.round(ACRObject.compute_histogram_mean(data)), np.round(ACRObject.compute_histogram_width(data))
 
     @staticmethod
-    def compute_data_mode(data):
-        """Computes the mode of the given dataset using a 100 bins histogram. This method ignores the zeros.
+    def compute_histogram_mode(data):
+        """Computes the mode of the given dataset using a 256 bins histogram. This method ignores the zeros.
 
         Args:
             data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
@@ -386,10 +667,46 @@ class ACRObject:
 
         """
         search_data = data[data > 0]
-        hist, bins = np.histogram(search_data, bins=100)
+        hist, bins = np.histogram(search_data, bins=256)
         mode = bins[np.argmax(hist)]
         logger.info(f'Computed mode: {mode}')
         return mode
+
+    @staticmethod
+    def compute_histogram_mean(data):
+        """Computes the mean of the given dataset using a 256 bins histogram. This method ignores the zeros.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            mean (float): non-zero mean of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=256)
+        logger.info(np.mean(bins))
+        mean = np.mean(bins)
+        logger.info(f'Computed mean: {mean}')
+        return mean
+
+    @staticmethod
+    def compute_histogram_width(data):
+        """Computes the width of the given dataset using a 256 bins histogram.
+        This method ignores the zeros. The width is computed as bins.max() - bins.min()
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+
+        Returns:
+            std (float): non-zero std of the dataset.
+
+        """
+        search_data = data[data > 0]
+        hist, bins = np.histogram(search_data, bins=256)
+        std = bins.max() - bins.min()
+        logger.info(f'Computed width: {std}')
+        return std
 
     @staticmethod
     def compute_percentile(data, percentile):
