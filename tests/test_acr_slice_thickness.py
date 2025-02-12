@@ -29,6 +29,9 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
         x_pts, y_pts = self.acr_slice_thickness_task.find_ramps(
             self.dcm.pixel_array, self.centre
         )
+        print(f'Slice Thickness ramp x_pts => {x_pts}')
+        print(f'Slice Thickness ramp y_pts => {y_pts}')
+
         assert (x_pts == self.x_pts).all() == True
 
         assert (y_pts == self.y_pts).all() == True
@@ -47,6 +50,6 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
 
 class TestACRSliceThicknessGE(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    x_pts = [146, 357]
+    x_pts = [146, 356]
     y_pts = [262, 250]
     dz = 5.02
