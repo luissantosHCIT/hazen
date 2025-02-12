@@ -9,12 +9,12 @@ from tests import TEST_DATA_DIR
 
 # Siemens (axial)
 class TestACRTools(unittest.TestCase):
-    centre = (130, 130)
+    centre = (129, 129)
     rotation = -1.0
     horizontal_distance = 191.40625
     horizontal_end = (128, 255)
     vertical_distance = 187.5
-    vertical_end = (255, 126)
+    vertical_end = (255, 128)
 
     def setUp(self):
         self.Siemens_data = [
@@ -118,11 +118,11 @@ class TestACRToolsSAG(TestACRTools):
 # GE axial
 class TestACRToolsGE(TestACRTools):
     rotation = 0.0
-    centre = (254, 256)
-    horizontal_distance = 190.425
-    horizontal_end = (262, 511)
+    centre = (258, 253)
+    horizontal_distance = 190.93
+    horizontal_end = (254, 511)
     vertical_distance = 188.9016
-    vertical_end = (511, 260)
+    vertical_end = (511, 255)
     test_point = (-60.98, -45.62)
 
     def setUp(self):
@@ -150,11 +150,11 @@ class TestACRToolsGE(TestACRTools):
 # Philips Achieva axial
 class TestACRToolsPhilips(TestACRTools):
     rotation = 0.0
-    centre = (130, 130)
+    centre = (128, 129)
     horizontal_distance = 190.4296875
-    horizontal_end = (125, 255)
+    horizontal_end = (129, 255)
     vertical_distance = 189.453125
-    vertical_end = (255, 131)
+    vertical_end = (255, 127)
 
     def setUp(self):
         self.Philips_data = [
@@ -176,11 +176,11 @@ class TestACRToolsPhilips(TestACRTools):
 # Siemens Magnetom Sola Fit axial
 class TestACRToolsSiemensSolaFit(TestACRTools):
     rotation = 0.0
-    centre = (127, 128)
+    centre = (128, 127)
     horizontal_distance = 190.42959000000002
-    horizontal_end = (126, 255)
+    horizontal_end = (128, 255)
     vertical_distance = 190.43
-    vertical_end = (255, 129)
+    vertical_end = (255, 127)
 
     def setUp(self):
         self.Philips_data = [

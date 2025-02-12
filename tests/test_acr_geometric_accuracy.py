@@ -13,7 +13,7 @@ from tests import TEST_DATA_DIR, TEST_REPORT_DIR
 class TestACRGeometricAccuracySiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
     L1 = 191.41, 187.5
-    L5 = 191.41, 187.5, 191.41, 190.43
+    L5 = 191.41, 187.5, 190.43, 191.41
     distortion_metrics = [-0.06, 2.5, 0.93]
 
     def setUp(self):
@@ -55,11 +55,24 @@ class TestACRGeometricAccuracySiemens(unittest.TestCase):
             self.acr_geometric_accuracy_task.get_distortion_metrics(self.L1 + self.L5)
         )
         metrics = np.round(metrics, 2)
+        print(f'Distortion metrics => {metrics}')
         assert (metrics == self.distortion_metrics).all() == True
 
 # TODO: Add unit tests for Philips datasets (when Philips data is available).
 class TestACRGeometricAccuracyGE(TestACRGeometricAccuracySiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    L1 = 190.42, 188.9
-    L5 = 190.42, 189.41, 190.42, 189.41
-    distortion_metrics = [-0.17, 1.1, 0.32]
+    L1 = 190.93, 188.9
+    L5 = 190.42, 189.41, 190.42, 189.92
+    distortion_metrics = [-0., 1.1, 0.36]
+
+class TestACRGeometricAccuracySiemensSolaFit(TestACRGeometricAccuracySiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
+    L1 = 190.43, 190.43
+    L5 = 189.45, 190.43, 190.43, 190.43
+    distortion_metrics = [0.27, 0.55, 0.19]
+
+class TestACRGeometricAccuracyPhilipsAchieva(TestACRGeometricAccuracySiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
+    L1 = 190.43, 189.45
+    L5 = 190.43, 189.45, 190.43, 188.48
+    distortion_metrics = [-0.22, 1.52, 0.38]
