@@ -153,8 +153,8 @@ class ACRObject:
         """
         logger.info("Detecting centroid location ...")
         detected_circles = detect_centroid(img, dx, dy)
-        centre_x = np.round(detected_circles[1])
-        centre_y = np.round(detected_circles[0])
+        centre_x = int(np.round(detected_circles[1]))
+        centre_y = int(np.round(detected_circles[0]))
         radius = np.round(detected_circles[2])
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
