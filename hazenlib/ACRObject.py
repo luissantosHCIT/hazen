@@ -271,7 +271,9 @@ class ACRObject:
             dcm (pydicom.Dataset): DICOM instance used to find the default windowing and rescaling settings.
 
         Returns:
-            pixel_data (np.ndarray): Presentation ready pixel array.
+            raw (np.ndarray): Original pixel array.
+            rescaled (np.ndarray): Rescaled pixel array.
+            presentation (np.ndarray): Presentation ready pixel array.
 
         """
         img = dcm.pixel_array
@@ -281,12 +283,12 @@ class ACRObject:
         center = dcm.get('WindowCenter', None)
         width = dcm.get('WindowWidth', None)
         voi_lut_function = dcm.get('VOILUTFunction', 'linear').lower()
-        float_data = img.astype(np.float32)  # Cast to float to maintain precision
+        float_data = img.copy().astype(np.float32)  # Cast to float to maintain precision
         rescaled = ACRObject.rescale_data(float_data, slope, intercept)
         windowed = ACRObject.apply_window_center_width(rescaled, center, width, voi_lut_function, dtype)
         rounded_window = np.round(windowed.data)    # Round so that we have integers. Realistically, we should only be
                                                     # dealing with uint16, but adjust this step if there's other data.
-        return rounded_window.astype(dtype)  # Cast back to original type, allow truncation
+        return img, np.round(rescaled).astype(dtype), rounded_window.astype(dtype)  # Cast back to original type, allow truncation
 
     def get_mask_image(self, image, centre, mag_threshold=0.07, open_threshold=500):
         """Create a masked pixel array. \n
@@ -484,7 +486,7 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
-        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
+        logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
         adjusted_width = width - 1
         half_width = adjusted_width / 2
         lower_mask = data <= center - 0.5 - half_width
@@ -525,7 +527,7 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
-        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
+        logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
         half_width = width / 2
         lower_mask = data <= center - half_width
         upper_mask = data > center + half_width
@@ -556,7 +558,7 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
-        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
+        logger.info(f'Applying Window Settings using the Sigmoid method => Center: {center} Width: {width}')
         mid_mask = dtmin <= data <= dtmax
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
@@ -588,7 +590,7 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
-        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
+        logger.info(f'Applying Window Settings using the Clip method => Center: {center} Width: {width}')
         half_width = width / 2
         upper_grey = center + half_width
         lower_grey = center - half_width
