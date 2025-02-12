@@ -268,7 +268,7 @@ class ACRObjectDetectability(HazenTask):
         bin = expand_data_range(img, target_type=np.uint8)
         #thr = ACRObject.compute_percentile(bin, 98.7) #97
         #thr = ACRObject.compute_percentile(bin, 92)
-        thr = ACRObject.compute_percentile(bin, 91.7)
+        thr = ACRObject.compute_percentile(bin, 92)
         logger.info(f'Binarization threshold selected => {thr}')
         bin[bin > thr] = 255
         bin[bin <= thr] = 0
@@ -370,7 +370,7 @@ class ACRObjectDetectability(HazenTask):
         slice_id = 8 + slice_num
         logger.info(f'Processing slice # {slice_id}')
 
-        img = self.ACR_obj.get_presentation_pixels(dcm)
+        img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
 
         # Step 0, let's obtain a better center
         (center_x, center_y) = self.get_img_center(img)
