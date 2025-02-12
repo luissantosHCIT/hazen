@@ -564,6 +564,45 @@ class ACRObject:
         return masked_data
 
     @staticmethod
+    def apply_clip_window_center_width(data, center, width, dtmin=0, dtmax=255):
+        """Filters data by the specified center and width using the custom clip method. This method is not a standard
+        DICOM windowing method. It is a modified form of the linear_exact method. We basically do not rescale the window
+        data. It uses numpy.clip() to generate the window data.
+
+        Somehow, this works better than the linear method for the object detectability task.
+
+        This method is similar to described in Radiopaedia
+
+        ::
+
+            Murphy A, Wilczek M, Feger J, et al. Windowing (CT). Reference article,
+            Radiopaedia.org (Accessed on 24 Jan 2025) https://doi.org/10.53347/rID-52108
+
+        Args:
+            data (np.ndarray): pixel array containing the data to perform peak extraction on
+            center (int): The desired Window Center setting.
+            width (int): The desired Window Width setting.
+            dtmin (int): The min value of datatype.
+            dtmax (int): The max value of datatype.
+
+        Returns:
+            np.ma.MaskedArray: Windowed data
+        """
+        logger.info(f'Applying Window Settings => Center: {center} Width: {width}')
+        half_width = width / 2
+        upper_grey = center + half_width
+        lower_grey = center - half_width
+        upper_mask = data > upper_grey
+        lower_mask = data <= lower_grey
+        mid_mask = lower_mask & upper_mask
+        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        # Apply thresholds
+        masked_data[lower_mask] = dtmin
+        masked_data[upper_mask] = dtmax
+        masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
+        return masked_data
+
+    @staticmethod
     def apply_window_center_width(data, center, width, function='linear', dtype=None):
         """Filters data by the specified center and width. We support 3 functions defined by the DICOM standard. These
         functions are linear (default), linear_exact, and sigmoid.
@@ -594,6 +633,8 @@ class ACRObject:
             return ACRObject.apply_linear_exact_window_center_width(data, center, width, dtype_min, dtype_max)
         if function == 'sigmoid':
             return ACRObject.apply_sigmoid_window_center_width(data, center, width, dtype_min, dtype_max)
+        if function == 'clip':
+            return ACRObject.apply_clip_window_center_width(data, center, width, dtype_min, dtype_max)
         return ACRObject.apply_linear_window_center_width(data, center, width, dtype_min, dtype_max)
 
     @staticmethod
