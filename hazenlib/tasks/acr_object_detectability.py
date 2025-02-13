@@ -263,17 +263,6 @@ class ACRObjectDetectability(HazenTask):
         combined_mask = np.ma.mask_or(~spot1[0].mask, np.ma.mask_or(~spot2[0].mask, ~spot3[0].mask))
         return np.ma.mask_or(combined_mask, target_mask)
 
-    @staticmethod
-    def binarize(img, mask=None):
-        bin = expand_data_range(img, target_type=np.uint8)
-        #thr = ACRObject.compute_percentile(bin, 98.7) #97
-        #thr = ACRObject.compute_percentile(bin, 92)
-        thr = ACRObject.compute_percentile(bin, 92)
-        logger.info(f'Binarization threshold selected => {thr}')
-        bin[bin > thr] = 255
-        bin[bin <= thr] = 0
-        return bin
-
     def compute_score(self, feature_data, center, slice_num):
         spoke_results = {}
         for spoke in range(10):
@@ -419,7 +408,8 @@ class ACRObjectDetectability(HazenTask):
         dog = np.ma.masked_array(dog, mask=inner_roi.mask, fill_value=0)
 
         # Binarize the results
-        binarized = self.binarize(dog.copy())
+        # Results should be so clean at this stage that we do not need to be aggressive (97+) in the thresholding.
+        binarized = self.ACR_obj.binarize_image(dog.copy(), 92)
 
         # Dilate the signal that is present.
         dilated = cv2.dilate(binarized, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))

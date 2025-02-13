@@ -848,6 +848,25 @@ class ACRObject:
         )
 
     @staticmethod
+    def resample(data, dx=1, dy=1):
+        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_CUBIC)
+
+    @staticmethod
+    def zoom(data, level=1):
+        #target_width = data.shape[0] * level
+        #target_height = data.shape[1] * level
+        return ACRObject.resample(data, dx=level, dy=level)
+
+    @staticmethod
+    def binarize_image(img, percentile=95):
+        bin = expand_data_range(img, target_type=np.uint8)
+        thr = ACRObject.compute_percentile(bin, percentile)
+        logger.info(f'Binarization threshold selected => {thr}')
+        bin[bin > thr] = 255
+        bin[bin <= thr] = 0
+        return bin
+
+    @staticmethod
     def crop_image(img, x, y, width):
         """Return a rectangular subset of a pixel array
 
