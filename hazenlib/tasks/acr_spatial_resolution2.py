@@ -6,7 +6,6 @@ Reference Materials
 +++++++++++++++++++
 
     *. `Large Phantom Instructions <https://www.acraccreditation.org/-/media/acraccreditation/documents/mri/largephantomguidance.pdf>`_
-    *. `MTF-50 Paper <https://opg.optica.org/oe/fulltext.cfm?uri=oe-22-5-6040&id=281325>`_
 
 Intro
 +++++
@@ -77,7 +76,7 @@ import skimage.measure
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
-from hazenlib.utils import create_rectangular_roi_at, debug_image_sample
+from hazenlib.utils import create_rectangular_roi_at, debug_image_sample, wait_on_parallel_results
 
 
 class ACRSpatialResolution(HazenTask):
@@ -85,6 +84,12 @@ class ACRSpatialResolution(HazenTask):
 
     Inherits from HazenTask class
     """
+
+    ROI_OFFSET = 23         #: 23mm separation between ROIs
+    BASE_UL_X_OFFSET = -17  #: -17mm from centroid for 1.1mm resolution array
+    BASE_UL_Y_OFFSET = 35   #: 35mm from centroid for 1.1mm resolution array
+    BASE_LR_X_OFFSET = -8   #: -8mm from centroid for 1.1mm resolution array
+    BASE_LR_Y_OFFSET = 43   #: 43mm from centroid for 1.1mm resolution array
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -436,30 +441,45 @@ class ACRSpatialResolution(HazenTask):
 
         return eff_res
 
-    def get_roi_resolution(self, img, width, height, loc, dx, dy):
+    def get_processed_roi(self, img, width, height, loc):
         roi_x, roi_y = loc
 
         roi = create_rectangular_roi_at(img, width, height, roi_x, roi_y)
         roi[roi.mask] = 0
-        #debug_image_sample(roi)
 
         non_zero = roi[roi > 0]
         center, window_width = self.ACR_obj.compute_center_and_width(non_zero)
-        leveled = self.ACR_obj.apply_window_width_center(roi, center, window_width)
-        #debug_image_sample(leveled)
+        leveled = self.ACR_obj.apply_window_center_width(roi, center, window_width, function='clip')
 
         crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
-        #debug_image_sample(crop_img)
 
-        crop_height = crop_img.shape[1]
-        #non_zero = crop_img[]
-        for col in range(crop_img.shape[0]):
-            line_profile = skimage.measure.profile_line(
-                crop_img,
-                (col, 0),
-                (col, crop_height),
-                mode="constant",
-            ).flatten()
+        zoom_level = 3  #: The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
+        zoom = self.ACR_obj.zoom(crop_img, 3)
+
+        dog = self.ACR_obj.filter_with_dog(zoom, 1, 2, gamma=0.5)
+
+        binarized = self.ACR_obj.binarize_image(dog, 90)
+
+        downsampled = self.ACR_obj.zoom(binarized, 1 / zoom_level)  # Undo zoom to have nice single scan lines :)
+
+        return self.ACR_obj.normalize(downsampled, 1)
+
+    def find_resolved_row(self, roi, ul=True):
+        roi = roi if ul else np.rot90(roi)
+        row_length = roi.shape[1]
+        vals = np.zeros((roi.shape[0], 1))
+        for i in range(len(vals)):
+            peaks, intensities = self.ACR_obj.find_n_highest_peaks(roi[i], row_length)
+            vals[i] = len(peaks)
+        vals = np.trim_zeros(vals, 'f')
+        vals = [np.max(vals[i:i + 2]).astype(np.int_) for i in range(0, len(vals), 2)]
+        vals = np.trim_zeros(vals, 'b')
+        logger.info(f'Row spots detected {vals}')
+        for i in range(len(vals)):
+            if vals[i] == 4:
+                return i + 1
+        return -1
+
 
     def get_mtf50(self, dcm):
         """_summary_
@@ -470,17 +490,47 @@ class ACRSpatialResolution(HazenTask):
         Returns:
             tuple: _description_
         """
-        img = dcm.pixel_array
-        dx, dy = self.ACR_obj.dx, self.ACR_obj.dy
+        img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
+        dx, dy = float(self.ACR_obj.dx), float(self.ACR_obj.dy)
         cxy, _ = self.ACR_obj.find_phantom_center(img, dx, dy)
+        width = int(np.round(12 / dx))
 
-        logger.info(f"Center {cxy}")
-        logger.info(f"Pixel Resolution {dx, dy}")
-        ramp_x, ramp_y = (int(cxy[0] - 17 / dx), int(cxy[1] + 35 / dy))
-        logger.info(f"Adjusted Center {ramp_x, ramp_y}")
+        logger.info(f"Center           => {cxy}")
+        logger.info(f"Pixel Resolution => {dx, dy}")
+        logger.info(f"ROI width        => {width}")
 
-        width = int(13 * img.shape[0] / 256)
-        self.get_roi_resolution(img, width, width, (ramp_x, ramp_y), dx, dy)
+        # Request UL ROI
+        x_off = (-17 / dx) + 2 * 23 / dx
+        y_off = (35 / dy)
+        ramp_x, ramp_y = (int(cxy[0] + x_off), int(cxy[1] + y_off))
+        logger.info(f"UL ROI Center for Array {0} => {ramp_x, ramp_y}")
+
+        # TODO: apply x offset equations below
+        # TODO: Add results reporting
+        # TODO: Add Unit tests
+        # TODO: Validate results
+        task_args = []
+        for i in range(3):
+            # Request UL ROI
+            x_off = (-17 / dx) + i * self.ROI_OFFSET / dx
+            y_off = (35 / dy)
+            ramp_x, ramp_y = (int(cxy[0] - 17 / dx), int(cxy[1] + 35 / dy))
+            logger.info(f"UL ROI Center for Array {i} => {ramp_x, ramp_y}")
+            task_args.append((rescaled, width, width, (ramp_x, ramp_y)))
+
+            # Request LR ROI
+            ramp_x, ramp_y = (int(cxy[0] - 8 / dx), int(cxy[1] + 43 / dy))
+            logger.info(f"LR ROI Center for Array {i} => {ramp_x, ramp_y}")
+            task_args.append((rescaled, width, width, (ramp_x, ramp_y)))
+        processed_rois = wait_on_parallel_results(self.get_processed_roi, task_args)
+
+        task_args.clear()
+        for i in range(0, len(processed_rois), 2):
+            task_args.append((processed_rois[i], True))
+            task_args.append((processed_rois[i + 1], False))
+        detected_rows = wait_on_parallel_results(self.find_resolved_row, task_args)
+
+        logger.info(f'Detected rows => {detected_rows}')
 
         #crop_img = self.ACR_obj.crop_image(img, ramp_x, ramp_y, width)
         #edge_type, direction = self.get_edge_type(crop_img)
