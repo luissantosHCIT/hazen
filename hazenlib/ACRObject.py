@@ -26,6 +26,7 @@ class ACRObject:
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
         self.dx, self.dy = dcm_list[0].PixelSpacing
+        self.dx, self.dy = float(self.dx), float(self.dy)
         logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
         # Perform sorting of the input DICOM list based on position
@@ -145,8 +146,8 @@ class ACRObject:
 
         Args:
             img (np.ndarray): pixel array of the DICOM image.
-            dx (int): pixel array of the DICOM image.
-            dy (int): pixel array of the DICOM image.
+            dx (float): pixel array of the DICOM image.
+            dy (float): pixel array of the DICOM image.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image

@@ -631,8 +631,8 @@ def detect_centroid(img, dx, dy):
 
     Args:
         img (np.ndarray): pixel array containing the data to perform circle detection on
-        dx (int): The coordinates of the point to rotate
-        dy (int, optional): The amplitude threshold for peak identification. Defaults to 1.
+        dx (float): The coordinates of the point to rotate
+        dy (float, optional): The amplitude threshold for peak identification. Defaults to 1.
 
     Returns:
         np.ndarray: Flattened array of tuples
