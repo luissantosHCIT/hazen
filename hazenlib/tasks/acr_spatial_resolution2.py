@@ -72,6 +72,7 @@ import cv2
 import scipy
 import skimage.morphology
 import skimage.measure
+from matplotlib.image import NonUniformImage
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
@@ -87,9 +88,9 @@ class ACRSpatialResolution(HazenTask):
 
     ROI_OFFSET = 23         #: 23mm separation between ROIs
     BASE_UL_X_OFFSET = -17  #: -17mm from centroid for 1.1mm resolution array
-    BASE_UL_Y_OFFSET = 35   #: 35mm from centroid for 1.1mm resolution array
-    BASE_LR_X_OFFSET = -8   #: -8mm from centroid for 1.1mm resolution array
-    BASE_LR_Y_OFFSET = 43   #: 43mm from centroid for 1.1mm resolution array
+    BASE_UL_Y_OFFSET = 34   #: 34mm from centroid for 1.1mm resolution array
+    BASE_LR_X_OFFSET = -9   #: -9mm from centroid for 1.1mm resolution array
+    BASE_LR_Y_OFFSET = 42   #: 42mm from centroid for 1.1mm resolution array
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -103,25 +104,38 @@ class ACRSpatialResolution(HazenTask):
             dict: results are returned in a standardised dictionary structure specifying the task name, input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs, optionally path to the generated images for visualisation
         """
         # Identify relevant slices
-        mtf_dcm = self.ACR_obj.slice_stack[0]
-
-        rot_ang = self.ACR_obj.determine_rotation(mtf_dcm.pixel_array)
-        if np.abs(rot_ang) < 3:
-            logger.warning(
-                f"The estimated rotation angle of the ACR phantom is {np.round(rot_ang, 3)} degrees, which "
-                f"is less than the recommended 3 degrees. Results will be unreliable!"
-            )
+        dcm = self.ACR_obj.slice_stack[0]
 
         # Initialise results dictionary
         results = self.init_result_dict()
-        results["file"] = self.img_desc(mtf_dcm)
+        results["file"] = self.img_desc(dcm)
 
         try:
-            raw_res, fitted_res = self.get_mtf50(mtf_dcm)
+            detected_rows = self.get_spatially_resolved_rows(dcm)
+
+            best_resolution = '1.1'
+            for i in range(0, len(detected_rows), 2):
+                ul = detected_rows[i]
+                lr = detected_rows[i + 1]
+                if min(ul, lr) != -1:
+                    best_resolution = str(np.round(1.1 - 0.1 * int(i / 2), 1))
+
             results["measurement"] = {
-                "estimated rotation angle": round(rot_ang, 2),
-                "raw mtf50": round(raw_res, 2),
-                "fitted mtf50": round(fitted_res, 2),
+                "resolution": best_resolution,
+                "rows": {
+                    1.1: {
+                        'UL': detected_rows[0],
+                        'LR': detected_rows[1]
+                    },
+                    1.0: {
+                        'UL': detected_rows[2],
+                        'LR': detected_rows[3]
+                    },
+                    0.9: {
+                        'UL': detected_rows[4],
+                        'LR': detected_rows[5]
+                    }
+                }
             }
         except Exception as e:
             print(
@@ -135,311 +149,72 @@ class ACRSpatialResolution(HazenTask):
 
         return results
 
-    def write_report(self, dcm, img, ramp_x, ramp_y, width):
+    def write_report(self, dcm, img, center, roi_coords, processed_rois, width):
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
 
-        fig, axes = plt.subplots(2, 1)
-        fig.set_size_inches(8, 10)
-        fig.tight_layout(pad=4)
-
-        axes[0].imshow(img, interpolation="none")
-        rect = patches.Rectangle(
-            (ramp_x - width / 2, ramp_y - width / 2),
-            width,
-            width,
-            linewidth=1,
-            edgecolor="w",
-            facecolor="none",
+        #fig, axes = plt.subplots(3, 3)
+        fig, axes = plt.subplot_mosaic(
+            [
+                ['main', 'main', 'main'],
+                ['main', 'main', 'main'],
+                ['main', 'main', 'main'],
+                ['main', 'main', 'main'],
+                ['main', 'main', 'main'],
+                ['ul1', 'ul2', 'ul3'],
+                ['lr1', 'lr2', 'lr3'],
+                ['.', '.', '.'],
+                ['.', '.', '.']
+            ],
+            layout="constrained",
+            per_subplot_kw={
+                'main': {
+                    'xbound': (0, 750),
+                    'ybound': (0, 500)
+                }
+            }
         )
-        axes[0].add_patch(rect)
-        axes[0].scatter(ramp_x, ramp_y, c="red", s=1)
-        axes[0].axis("off")
-        axes[0].set_title("Segmented Edge")
+        fig.set_size_inches(8, 10)
+        #fig.tight_layout(pad=1)
+
+        axes['main'].imshow(img, interpolation="none")
+        for i in range(len(roi_coords)):
+            roi_center = roi_coords[i]
+            rect = patches.Rectangle(
+                (roi_center[0] - width / 2, roi_center[1] - width / 2),
+                width,
+                width,
+                linewidth=1,
+                edgecolor="w",
+                facecolor="none",
+            )
+            axes['main'].add_patch(rect)
+        axes['main'].scatter(center[0], center[1], c="red", s=1)
+        axes['main'].axis("off")
+        axes['main'].set_title("Centroid + ROI Placement")
+
+        axes['ul1'].set_title("1.1mm")
+        axes['ul2'].set_title("1.0mm")
+        axes['ul3'].set_title("0.9mm")
+
+        for i in range(0, len(processed_rois), 2):
+            ul = processed_rois[i][1]
+            lr = processed_rois[i + 1][1]
+            indx = int(i / 2) + 1
+            ul_name = f'ul{indx}'
+            lr_name = f'lr{indx}'
+            axes[ul_name].imshow(ul, interpolation="none")
+            axes[ul_name].axis("off")
+            axes[ul_name].set_xlabel(ul_name.upper())
+            axes[lr_name].imshow(lr, interpolation="none")
+            axes[lr_name].axis("off")
+            axes[lr_name].set_xlabel(lr_name.upper())
 
         img_path = os.path.realpath(
             os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
         )
         fig.savefig(img_path)
         self.report_files.append(img_path)
-
-    def y_position_for_ramp(self, img, cxy):
-        """Identify the y coordinate of the ramp
-
-        Args:
-            img (np.ndarray): dcm.pixelarray
-            cxy (tuple): x,y coordinates of the object centre
-
-        Returns:
-            float: y coordinate of the ramp min
-        """
-        investigate_region = int(np.ceil(5.5 / self.ACR_obj.dy).item())
-
-        if np.mod(investigate_region, 2) == 0:
-            investigate_region = investigate_region + 1
-
-        line_profile_y = skimage.measure.profile_line(
-            img,
-            (cxy[1] - 2 * investigate_region, cxy[0]),
-            (cxy[1] + 2 * investigate_region, cxy[1]),
-            mode="constant",
-        ).flatten()
-
-        abs_diff_y_profile = np.absolute(np.diff(line_profile_y))
-        y_peaks = scipy.signal.find_peaks(abs_diff_y_profile, height=1)
-        pk_heights = y_peaks[1]["peak_heights"]
-        pk_ind = y_peaks[0]
-        highest_y_peaks = pk_ind[(-pk_heights).argsort()[:2]]
-        y_locs = highest_y_peaks - 1
-
-        height_pts = cxy[1] - 2 * investigate_region - 1 + y_locs
-
-        y = np.min(height_pts) + 2
-
-        return y
-
-    def get_edge_type(self, crop_img):
-        """Determine direction of ramp edge
-
-        Args:
-            crop_img (np.ndarray): cropped pixel array ~ subset of the image
-
-        Returns:
-            tuple of string: vertical/horizontal and up/down or left/rigtward
-        """
-        edge_sum_rows = np.sum(crop_img, axis=1).astype(np.int_)
-        edge_sum_cols = np.sum(crop_img, axis=0).astype(np.int_)
-
-        _, pk_rows_height = self.ACR_obj.find_n_highest_peaks(
-            np.abs(np.diff(edge_sum_rows)), 1
-        )
-        _, pk_cols_height = self.ACR_obj.find_n_highest_peaks(
-            np.abs(np.diff(edge_sum_cols)), 1
-        )
-
-        edge_type = "vertical" if pk_rows_height > pk_cols_height else "horizontal"
-
-        thresh_roi_crop = crop_img > 0.6 * np.max(crop_img)
-        edge_dir = (
-            np.sum(thresh_roi_crop, axis=0)
-            if edge_type == "vertical"
-            else np.sum(thresh_roi_crop, axis=1)
-        )
-        if edge_type == "vertical":
-            direction = "downward" if edge_dir[-1] > edge_dir[0] else "upward"
-        else:
-            direction = "leftward" if edge_dir[-1] > edge_dir[0] else "rightward"
-
-        return edge_type, direction
-
-    def edge_location_for_plot(self, crop_img, edge_type):
-        """Determine the location of the edge so it can be visualised
-
-        Args:
-            crop_img (np.array): cropped pixel array ~ subset of the image
-            edge_type (tuple): vertical/horizontal and up/down or left/rigtward
-
-        Returns:
-            np.array: mask array for edge location
-        """
-        thresh_roi_crop = crop_img > 0.6 * np.max(crop_img)
-
-        naive_lsf = (
-            np.abs(np.diff(np.sum(thresh_roi_crop, 1))) > 1
-            if edge_type == "vertical"
-            else np.abs(np.diff(np.sum(thresh_roi_crop, 0)))
-        )
-        edge_test = np.diff(np.where(naive_lsf == 0))[0]
-        edge_begin = np.where(edge_test > 1)
-        edge_loc = np.array(
-            [edge_begin, edge_begin + edge_test[edge_begin] - 1]
-        ).flatten()
-
-        return edge_loc
-
-    def fit_normcdf_surface(self, crop_img, edge_type, direction):
-        """Fit normalised CDF? to surface
-
-        Args:
-            crop_img (np.array): cropped pixel array ~ subset of the image
-            edge_type (string): vertical/horizontal
-            direction (string): up/down or left/rigtward
-
-        Returns:
-            tuple of floats: slope, surface
-        """
-        thresh_roi_crop = crop_img > 0.6 * np.max(crop_img)
-        temp_x = np.linspace(1, thresh_roi_crop.shape[1], thresh_roi_crop.shape[1])
-        temp_y = np.linspace(1, thresh_roi_crop.shape[0], thresh_roi_crop.shape[0])
-        x, y = np.meshgrid(temp_x, temp_y)
-
-        bright = max(crop_img[thresh_roi_crop])
-        dark = 20 + np.min(crop_img[~thresh_roi_crop])
-
-        def func(x, slope, mu, bright, dark):
-            """Maths function
-
-            Args:
-                x (_type_): _description_
-                slope (_type_): _description_
-                mu (_type_): _description_
-                bright (_type_): _description_
-                dark (_type_): _description_
-
-            Returns:
-                _type_: _description_
-            """
-            norm_cdf = (bright - dark) * scipy.stats.norm.cdf(
-                x[0], mu + slope * x[1], 0.5
-            ) + dark
-
-            return norm_cdf
-
-        sign = 1 if direction in ("downward", "leftward") else -1
-        x_data = (
-            np.vstack((sign * x.ravel(), y.ravel()))
-            if edge_type == "vertical"
-            else np.vstack((sign * y.ravel(), x.ravel()))
-        )
-
-        popt, pcov = scipy.optimize.curve_fit(
-            func, x_data, crop_img.ravel(), p0=[0, 0, bright, dark], maxfev=1000
-        )
-        surface = func(x_data, popt[0], popt[1], popt[2], popt[3]).reshape(
-            crop_img.shape
-        )
-
-        slope = 1 / popt[0] if direction in ("leftward", "upward") else -1 / popt[0]
-
-        return slope, surface
-
-    def sample_erf(self, crop_img, slope, edge_type):
-        """_summary_
-
-        Args:
-            crop_img (np.array): cropped pixel array ~ subset of the image
-            slope (float): value of slope of edge
-            edge_type (string): vertical/horizontal
-
-        Returns:
-            np.array: _description_
-        """
-        resamp_factor = 8
-        if edge_type == "horizontal":
-            resample_crop_img = cv2.resize(
-                crop_img, (crop_img.shape[0] * resamp_factor, crop_img.shape[1])
-            )
-        else:
-            resample_crop_img = cv2.resize(
-                crop_img, (crop_img.shape[0], crop_img.shape[1] * resamp_factor)
-            )
-
-        mid_loc = [i / 2 for i in resample_crop_img.shape]
-
-        temp_x = np.linspace(1, resample_crop_img.shape[1], resample_crop_img.shape[1])
-        temp_y = np.linspace(1, resample_crop_img.shape[0], resample_crop_img.shape[0])
-        x_resample, y_resample = np.meshgrid(temp_x, temp_y)
-
-        erf = []
-        n_inside_roi = []
-        if edge_type == "horizontal":
-            diffY = (y_resample - 1) - mid_loc[0]
-            x_prime = x_resample + resamp_factor * diffY * slope
-
-            x_min, x_max = np.min(x_prime).astype(int), np.max(x_prime).astype(int)
-
-            for k in range(x_min, x_max):
-                erf_val = np.mean(resample_crop_img[(x_prime >= k) & (x_prime < k + 1)])
-                erf.append(erf_val)
-                number_nonzero = np.count_nonzero(
-                    resample_crop_img[(x_prime >= k) & (x_prime < k + 1)]
-                )
-                n_inside_roi.append(number_nonzero)
-        else:
-            diffX = (x_resample.shape[0] - 1) - x_resample - mid_loc[1]
-            y_prime = np.flipud(y_resample) + resamp_factor * diffX * slope
-
-            y_min, y_max = np.min(y_prime).astype(int), np.max(y_prime).astype(int)
-
-            for k in range(y_min, y_max):
-                erf_val = np.mean(resample_crop_img[(y_prime >= k) & (y_prime < k + 1)])
-                erf.append(erf_val)
-                number_nonzero = np.count_nonzero(
-                    resample_crop_img[(y_prime >= k) & (y_prime < k + 1)]
-                )
-                n_inside_roi.append(number_nonzero)
-
-        erf = np.array(erf)
-        n_inside_roi = np.array(n_inside_roi)
-
-        erf = erf[n_inside_roi == np.max(n_inside_roi)]
-
-        return erf
-
-    def fit_erf(self, erf):
-        """Fit ERF
-
-        Args:
-            erf (np.array): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        true_erf = np.diff(erf) > 0.2 * np.max(np.diff(erf))
-        turning_points = np.where(true_erf)[0][0], np.where(true_erf)[0][-1]
-        weights = 0.5 * np.ones((len(true_erf) + 1))
-        weights[turning_points[0] : turning_points[1]] = 1
-
-        def func(x, a, b, c, d, e):
-            """Maths function for sigmoid curve equation
-
-            Args:
-                x (_type_): _description_
-                a (_type_): _description_
-                b (_type_): _description_
-                c (_type_): _description_
-                d (_type_): _description_
-                e (_type_): _description_
-
-            Returns:
-                _type_: _description_
-            """
-            sigmoid = a + b / (1 + np.exp(c * (x - d))) ** e
-
-            return sigmoid
-
-        popt, pcov = scipy.optimize.curve_fit(
-            func,
-            np.arange(1, len(erf) + 1),
-            erf,
-            sigma=(1 / weights),
-            p0=[np.min(erf), np.max(erf), 0, sum(turning_points) / 2, 1],
-            maxfev=5000,
-        )
-        erf_fit = func(
-            np.arange(1, len(erf) + 1), popt[0], popt[1], popt[2], popt[3], popt[4]
-        )
-
-        return erf_fit
-
-    def identify_MTF50(self, freq, MTF):
-        """Calculate effective resolution
-
-        Args:
-            freq (float or int): _description_
-            MTF (float or int): _description_
-
-        Returns:
-            float: _description_
-        """
-        freq_interp = np.arange(0, 1.005, 0.005)
-        MTF_interp = np.interp(
-            freq_interp, freq, MTF, left=None, right=None, period=None
-        )
-        equivalent_linepairs = freq_interp[np.argmin(np.abs(MTF_interp - 0.5))]
-        eff_res = 1 / (equivalent_linepairs * 2)
-
-        return eff_res
 
     def get_processed_roi(self, img, width, height, loc):
         roi_x, roi_y = loc
@@ -453,16 +228,18 @@ class ACRSpatialResolution(HazenTask):
 
         crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
 
-        zoom_level = 3  #: The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
+        zoom_level = 3  # The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
         zoom = self.ACR_obj.zoom(crop_img, 3)
 
-        dog = self.ACR_obj.filter_with_dog(zoom, 1, 2, gamma=0.5)
+        smoothed = self.ACR_obj.filter_with_gaussian(zoom, 0.5)
+
+        dog = self.ACR_obj.filter_with_dog(smoothed, 0.5, 1, gamma=0.5)
 
         binarized = self.ACR_obj.binarize_image(dog, 90)
 
         downsampled = self.ACR_obj.zoom(binarized, 1 / zoom_level)  # Undo zoom to have nice single scan lines :)
 
-        return self.ACR_obj.normalize(downsampled, 1)
+        return smoothed, self.ACR_obj.normalize(downsampled, 1)
 
     def find_resolved_row(self, roi, ul=True):
         roi = roi if ul else np.rot90(roi)
@@ -481,7 +258,7 @@ class ACRSpatialResolution(HazenTask):
         return -1
 
 
-    def get_mtf50(self, dcm):
+    def get_spatially_resolved_rows(self, dcm):
         """_summary_
 
         Args:
@@ -499,53 +276,35 @@ class ACRSpatialResolution(HazenTask):
         logger.info(f"Pixel Resolution => {dx, dy}")
         logger.info(f"ROI width        => {width}")
 
-        # Request UL ROI
-        x_off = (-17 / dx) + 2 * 23 / dx
-        y_off = (35 / dy)
-        ramp_x, ramp_y = (int(cxy[0] + x_off), int(cxy[1] + y_off))
-        logger.info(f"UL ROI Center for Array {0} => {ramp_x, ramp_y}")
-
-        # TODO: apply x offset equations below
-        # TODO: Add results reporting
         # TODO: Add Unit tests
         # TODO: Validate results
         task_args = []
+        roi_coords = []
         for i in range(3):
             # Request UL ROI
-            x_off = (-17 / dx) + i * self.ROI_OFFSET / dx
-            y_off = (35 / dy)
-            ramp_x, ramp_y = (int(cxy[0] - 17 / dx), int(cxy[1] + 35 / dy))
-            logger.info(f"UL ROI Center for Array {i} => {ramp_x, ramp_y}")
-            task_args.append((rescaled, width, width, (ramp_x, ramp_y)))
+            x_off = (self.BASE_UL_X_OFFSET / dx) + i * self.ROI_OFFSET / dx
+            ul_x, ul_y = (int(cxy[0] + x_off), int(cxy[1] + self.BASE_UL_Y_OFFSET / dy))
+            logger.info(f"UL ROI Center for Array {i} => {ul_x, ul_y}")
+            task_args.append((rescaled, width, width, (ul_x, ul_y)))
+            roi_coords.append((ul_x, ul_y))
 
             # Request LR ROI
-            ramp_x, ramp_y = (int(cxy[0] - 8 / dx), int(cxy[1] + 43 / dy))
-            logger.info(f"LR ROI Center for Array {i} => {ramp_x, ramp_y}")
-            task_args.append((rescaled, width, width, (ramp_x, ramp_y)))
+            x_off = (self.BASE_LR_X_OFFSET / dx) + i * self.ROI_OFFSET / dx
+            lr_x, lr_y = (int(cxy[0] + x_off), int(cxy[1] + self.BASE_LR_Y_OFFSET / dy))
+            logger.info(f"LR ROI Center for Array {i} => {lr_x, lr_y}")
+            task_args.append((rescaled, width, width, (lr_x, lr_y)))
+            roi_coords.append((lr_x, lr_y))
         processed_rois = wait_on_parallel_results(self.get_processed_roi, task_args)
 
         task_args.clear()
         for i in range(0, len(processed_rois), 2):
-            task_args.append((processed_rois[i], True))
-            task_args.append((processed_rois[i + 1], False))
+            task_args.append((processed_rois[i][1], True))
+            task_args.append((processed_rois[i + 1][1], False))
         detected_rows = wait_on_parallel_results(self.find_resolved_row, task_args)
 
         logger.info(f'Detected rows => {detected_rows}')
 
-        #crop_img = self.ACR_obj.crop_image(img, ramp_x, ramp_y, width)
-        #edge_type, direction = self.get_edge_type(crop_img)
-        #slope, surface = self.fit_normcdf_surface(crop_img, edge_type, direction)
-        #erf = self.sample_erf(crop_img, slope, edge_type)
-        #erf_fit = self.fit_erf(erf)
-
-        #freq, lsf_raw, MTF_raw = self.ACR_obj.calculate_MTF(erf, dx, dy)
-        #_, lsf_fit, MTF_fit = self.ACR_obj.calculate_MTF(erf_fit, dx, dy)
-
-        #eff_raw_res = self.identify_MTF50(freq, MTF_raw)
-        #eff_fit_res = self.identify_MTF50(freq, MTF_fit)
-
         if self.report:
-            self.write_report(dcm, img, ramp_x, ramp_y, width)
+            self.write_report(dcm, img, cxy, roi_coords, processed_rois, width)
 
-        #return eff_raw_res, eff_fit_res
-        return 1, 1
+        return detected_rows
