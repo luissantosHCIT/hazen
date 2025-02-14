@@ -868,24 +868,26 @@ class ACRObject:
         return bin
 
     @staticmethod
-    def crop_image(img, x, y, width):
+    def crop_image(img, x, y, width, height=None):
         """Return a rectangular subset of a pixel array
 
         Args:
-            img (np.ndarray): dcm.pixelarray
+            img (np.ndarray): image data to crop
             x (int): x coordinate of centre
             y (int): y coordinate of centre
-            width (int): size of the array top subset
+            width (int): width of box
+            height (int, optional): height of box. Will be set to width if None, Defaults to None
 
         Returns:
             np.ndarray: subset of a pixel array with given width
         """
+        height = width if height is None else height
         crop_x, crop_y = ((
             int(x - width / 2),
             int(x + width / 2)),
                           (
-            int(y - width / 2),
-            int(y + width / 2),
+            int(y - height / 2),
+            int(y + height / 2),
         ))
         crop_img = img[crop_y[0]:crop_y[1], crop_x[0]:crop_x[1]]
 
