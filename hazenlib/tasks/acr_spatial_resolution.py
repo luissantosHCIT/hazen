@@ -87,7 +87,7 @@ class ACRSpatialResolution(HazenTask):
     """
 
     ROI_OFFSET = 23         #: 23mm separation between ROIs
-    BASE_UL_X_OFFSET = -17  #: -17mm from centroid for 1.1mm resolution array
+    BASE_UL_X_OFFSET = -16  #: -16mm from centroid for 1.1mm resolution array
     BASE_UL_Y_OFFSET = 34   #: 34mm from centroid for 1.1mm resolution array
     BASE_LR_X_OFFSET = -9   #: -9mm from centroid for 1.1mm resolution array
     BASE_LR_Y_OFFSET = 42   #: 42mm from centroid for 1.1mm resolution array
@@ -101,7 +101,9 @@ class ACRSpatialResolution(HazenTask):
         using slice 1 from the ACR phantom image set
 
         Returns:
-            dict: results are returned in a standardised dictionary structure specifying the task name, input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs, optionally path to the generated images for visualisation
+            dict: results are returned in a standardised dictionary structure specifying the task name,
+            input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs,
+            optionally path to the generated images for visualisation
         """
         # Identify relevant slices
         dcm = self.ACR_obj.slice_stack[0]
@@ -222,31 +224,93 @@ class ACRSpatialResolution(HazenTask):
         self.report_files.append(img_path)
 
     def get_processed_roi(self, img, width, height, loc):
+        """Takes an input image and applies a series of preprocessing steps meant to optimize the output for robust
+        detection of signal peaks.
+
+        Preprocessing Steps
+        ___________________
+
+            #. Place small ROI using offset from center.
+            #. Apply clip windowing method using ROI pixel population.
+            #. Crop image at ROI.
+            #. Upsample image 3x.
+            #. Perform narrow sigma Gaussian denoising.
+            #. Perform Difference of Gaussians to drop most of the background and accentuate the main signal.
+            #. Binarize image using the 90th percentile as threshold.
+            #. Downsample image back to original dimensions. This step simplifies spot detection.
+            #. Normalize the image to 1 (makes each pixel Boolean compatible).
+
+        Args:
+            img (np.ndarray|np.ma.MaskedArray): Cropped image data
+            width (int): Width of rectangular ROI.
+            height (int): Height of rectangular ROI.
+            loc (tuple of int): Center of where the ROI is expected to be placed.
+
+        Returns:
+            tuple of np.ndarray: Denoised windowed output and normalized output.
+        """
         roi_x, roi_y = loc
 
         roi = create_rectangular_roi_at(img, width, height, roi_x, roi_y)
         roi[roi.mask] = 0
 
+        # Windowing step
         non_zero = roi[roi > 0]
         center, window_width = self.ACR_obj.compute_center_and_width(non_zero)
         leveled = self.ACR_obj.apply_window_center_width(roi, center, window_width, function='clip')
 
+        # Cropping step
         crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
 
+        # Upsampling step
         zoom_level = 3  # The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
         zoom = self.ACR_obj.zoom(crop_img, 3)
 
+        # Denoising step
         smoothed = self.ACR_obj.filter_with_gaussian(zoom, 0.5)
 
+        # Difference of Gaussians step
         dog = self.ACR_obj.filter_with_dog(smoothed, 0.5, 1, gamma=0.5)
 
+        # Binarization step
         binarized = self.ACR_obj.binarize_image(dog, 90)
 
+        # Downsampling step
         downsampled = self.ACR_obj.zoom(binarized, 1 / zoom_level)  # Undo zoom to have nice single scan lines :)
 
+        # Return denoised and normalized (0 to 1) results.
         return smoothed, self.ACR_obj.normalize(downsampled, 1)
 
     def find_resolved_row(self, roi, ul=True):
+        """Goes row by row and detects the number of intensity peaks present.
+        To make accuracy robust to signal that bleeds into an otherwise empty row, I check for the max count in pairs of
+        rows starting with the first row that contains any signal.
+
+        Detection Steps
+        _______________
+
+            #. Rotate ROI 90deg if LR, otherwise use ROI as is.
+            #. Iterate row by row and collect the count of signal peaks present.
+            #. Trim leading zeros.
+            #. From top of signal, iterate pair by pair of rows.
+            #. Select the max count of peaks at each row pair.
+            #. Trim trailing zeros.
+            #. Iterate through each count and stop at the first place with a count of 4.
+            #. Report this index location as index + 1. That is the human expected row where the input was deemed resolved.
+            #. Otherwise, report -1 to indicate we did not find any resolved rows!
+
+
+        Args:
+            roi (np.ndarray|np.ma.MaskedArray): Cropped image data
+            ul (bool): Whether the input is the UL or LR ROI. We want to rotate the LR input such that we can apply the
+                        same row traversal
+
+        Returns:
+            int: Row number expressing which row was detected as containing 4 peaks. For UL, this number reflect the
+                row number starting at the top. For LR, this number reflects the column number starting at the right
+                most column and moving to the left (in). Defaults to -1 to demarcate that no rows met the detection
+                criteria.
+        """
         roi = roi if ul else np.rot90(roi)
         row_length = roi.shape[1]
         vals = np.zeros((roi.shape[0], 1))
@@ -262,17 +326,24 @@ class ACRSpatialResolution(HazenTask):
                 return i + 1
         return -1
 
-
     def get_spatially_resolved_rows(self, dcm):
-        """_summary_
+        """Generates a series of ROIs centered around the hole arrays present in the ACR phantom.
+        Preprocesses these rois and then attempts to detect hole array.
+        These steps are parallelized for maximum processing efficiency.
+        Afterwards, write a report if requested. The report has the big picture view on the roi placements and includes
+        the preprocessing outputs.
 
         Args:
             dcm (pydicom.Dataset): DICOM image object
 
         Returns:
-            tuple: _description_
+            list of int: Array containing 6 values. One value for each ROI. The format is [ul, lr, ul, lr, ul, lr].
+                        Each pair of rois denotes one of three resolution arrays ([1.1, 1.0, 0.9]). Each value
+                        represents the row or column in which we detected 4 distinguishable holes.
         """
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
+
+        # Detect Phantom center.
         dx, dy = float(self.ACR_obj.dx), float(self.ACR_obj.dy)
         cxy, _ = self.ACR_obj.find_phantom_center(img, dx, dy)
         width = int(np.round(12 / dx))
@@ -283,6 +354,8 @@ class ACRSpatialResolution(HazenTask):
 
         # TODO: Add Unit tests
         # TODO: Validate results
+
+        # Generate preprocessed ROIs
         task_args = []
         roi_coords = []
         for i in range(3):
@@ -301,6 +374,7 @@ class ACRSpatialResolution(HazenTask):
             roi_coords.append((lr_x, lr_y))
         processed_rois = wait_on_parallel_results(self.get_processed_roi, task_args)
 
+        # Detect resolved row/column in each ROI.
         task_args.clear()
         for i in range(0, len(processed_rois), 2):
             task_args.append((processed_rois[i][1], True))
