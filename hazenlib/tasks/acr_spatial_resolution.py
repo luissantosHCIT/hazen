@@ -114,13 +114,7 @@ class ACRSpatialResolution(HazenTask):
 
         try:
             detected_rows = self.get_spatially_resolved_rows(dcm)
-
-            best_resolution = '1.1'
-            for i in range(0, len(detected_rows), 2):
-                ul = detected_rows[i]
-                lr = detected_rows[i + 1]
-                if min(ul, lr) != -1:
-                    best_resolution = str(np.round(1.1 - 0.1 * int(i / 2), 1))
+            best_resolution = self.get_best_resolution(detected_rows)
 
             results["measurement"] = {
                 "resolution": best_resolution,
@@ -222,6 +216,25 @@ class ACRSpatialResolution(HazenTask):
         )
         fig.savefig(img_path)
         self.report_files.append(img_path)
+
+    def get_best_resolution(self, detected_rows):
+        """Iterates through the detected roi scores. Since these come in UL/LR pairs, the presence of -1 in any of the
+        paired items disqualifies the hole array from being a resolved image. Go from 1.1 to 0.9 array and record
+        which is the highest resolution we detected. Return this value.
+
+        Args:
+            detected_rows (list of int): CList of ints describing each roi's resolved row.
+
+        Returns:
+            str: Highest resolution from a set of 1.1, 1.0, and 0.9.
+        """
+        best_resolution = '1.1'
+        for i in range(0, len(detected_rows), 2):
+            ul = detected_rows[i]
+            lr = detected_rows[i + 1]
+            if min(ul, lr) != -1:
+                best_resolution = str(np.round(1.1 - 0.1 * int(i / 2), 1))
+        return best_resolution
 
     def get_processed_roi(self, img, width, height, loc):
         """Takes an input image and applies a series of preprocessing steps meant to optimize the output for robust
