@@ -26,6 +26,7 @@ class ACRObject:
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
         self.dx, self.dy = dcm_list[0].PixelSpacing
+        self.dx, self.dy = float(self.dx), float(self.dy)
         logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
         # Perform sorting of the input DICOM list based on position
@@ -145,8 +146,8 @@ class ACRObject:
 
         Args:
             img (np.ndarray): pixel array of the DICOM image.
-            dx (int): pixel array of the DICOM image.
-            dy (int): pixel array of the DICOM image.
+            dx (float): pixel array of the DICOM image.
+            dy (float): pixel array of the DICOM image.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
@@ -827,17 +828,52 @@ class ACRObject:
 
     @staticmethod
     def apply_gamma_correction(data, gamma):
+        """Applies a gamma correction or Power Law to affect the contrast of pixels.
+
+        Args:
+            data (np.ndarray): image data to upsample.
+            gamma (float): factor by which to correct the lightness of the image. A value less than 1 darkens the image.
+                        A value of 1 has no effect. A value larger than 1 makes the image lighter.
+
+        Returns:
+            np.ndarray: gamma corrected image.
+        """
         g = 1 / gamma
         correction = 0.5 if gamma != 1.0 else 0
         return np.power(data + correction, g)
 
     @staticmethod
     def filter_with_gaussian(data, sigma=1, ksize=(0, 0), dtype=np.uint16):
+        """Applies a Gaussian filter to the input image. The result is then expanded to a requested data type's range.
+        If dtype is the same as data's native type this step will ensure values are normalized/scaled to fit in the
+        type's range.
+
+        Args:
+            data (np.ndarray): image data to upsample.
+            sigma (float): sigma value to apply in both dimensions.
+            ksize (tuple of int): size of the Gaussian kernel. The default value let's OpenCv know it should autodetect
+                        the kernel size, which can be optimal in many situations.
+            dtype (np.dtype): numpy data type to expand result range to. Keep it as original if you would like to keep
+                like the input's.
+
+        Returns:
+            np.ndarray: smoothed image.
+        """
         noise_removed = cv2.GaussianBlur(data, ksize=ksize, sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_ISOLATED)
         return expand_data_range(noise_removed, target_type=dtype)
 
     @staticmethod
     def normalize(data, max=255, dtype=cv2.CV_8U):
+        """Normalizes the input data to a max value of a given data type.
+
+        Args:
+            data (np.ndarray): image data to upsample.
+            max (float): max value to normalize the data to. Defaults to 255 which is the max in an 8bit target data set.
+            dtype (np.dtype): data type to return for normalization. Defaults to 8bit
+
+        Returns:
+            np.ndarray: resampled image.
+        """
         return cv2.normalize(
             src=data,
             dst=None,
@@ -846,4 +882,110 @@ class ACRObject:
             norm_type=cv2.NORM_MINMAX,
             dtype=dtype,
         )
+
+    @staticmethod
+    def resample(data, dx=1, dy=1):
+        """Resamples input image using OpenCV by some pixel/voxel resolution factor. This factor can be applied
+        independently in the x and y directions to generate uneven resampling.
+
+        Args:
+            data (np.ndarray): image data to upsample.
+            dx (float): integer factor by which to resample in the x dimension. Defaults to 1.
+            dy (float): integer factor by which to resample in the x dimension. Defaults to 1.
+
+        Returns:
+            np.ndarray: resampled image.
+        """
+        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_CUBIC)
+
+    @staticmethod
+    def zoom(data, level=1):
+        """Simulates zooming into an image by upsampling it to a given factor.
+
+        Args:
+            data (np.ndarray): image data to upsample
+            level (float): integer factor by which to upsample. For example, 3 => 3x the zoom.
+
+        Returns:
+            np.ndarray: binarized image.
+        """
+        return ACRObject.resample(data, dx=level, dy=level)
+
+    @staticmethod
+    def binarize_image(img, percentile=95):
+        """Binarizes an input image using a percentile from the histogram as threshold. The default is to look for the
+        95th percentile value and threshold against that. The resulting image contains only zeros and 255.
+
+        Args:
+            img (np.ndarray): image data to binarize
+            percentile (float): the cutoff level at which to binarize.
+
+        Returns:
+            np.ndarray: binarized image.
+        """
+        bin = expand_data_range(img, target_type=np.uint8)
+        thr = ACRObject.compute_percentile(bin, percentile)
+        logger.info(f'Binarization threshold selected => {thr}')
+        bin[bin > thr] = 255
+        bin[bin <= thr] = 0
+        return bin
+
+    @staticmethod
+    def crop_image(img, x, y, width, height=None):
+        """Return a rectangular subset of a pixel array
+
+        Args:
+            img (np.ndarray): image data to crop
+            x (int): x coordinate of centre
+            y (int): y coordinate of centre
+            width (int): width of box
+            height (int, optional): height of box. Will be set to width if None, Defaults to None
+
+        Returns:
+            np.ndarray: subset of a pixel array with given width
+        """
+        height = width if height is None else height
+        crop_x, crop_y = ((
+            int(x - width / 2),
+            int(x + width / 2)),
+                          (
+            int(y - height / 2),
+            int(y + height / 2),
+        ))
+        crop_img = img[crop_y[0]:crop_y[1], crop_x[0]:crop_x[1]]
+
+        return crop_img
+
+    @staticmethod
+    def calculate_MTF(erf, dx, dy):
+        """Calculate MTF
+
+        Args:
+            erf (np.array): array of ?
+
+        Returns:
+            tuple: freq, lsf, MTF
+        """
+        lsf = np.diff(erf)
+        N = len(lsf)
+        n = (
+            np.arange(-N / 2, N / 2)
+            if N % 2 == 0
+            else np.arange(-(N - 1) / 2, (N + 1) / 2)
+        )
+
+        resamp_factor = 8
+        Fs = 1 / (
+            np.sqrt(np.mean(np.square((dx, dy))))
+            * (1 / resamp_factor)
+        )
+        freq = n * Fs / N
+        MTF = np.abs(np.fft.fftshift(np.fft.fft(lsf)))
+        MTF = MTF / np.max(MTF)
+
+        zero_freq = np.where(freq == 0)[0][0]
+        freq = freq[zero_freq:]
+        MTF = MTF[zero_freq:]
+
+        return freq, lsf, MTF
 

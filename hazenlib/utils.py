@@ -631,8 +631,8 @@ def detect_centroid(img, dx, dy):
 
     Args:
         img (np.ndarray): pixel array containing the data to perform circle detection on
-        dx (int): The coordinates of the point to rotate
-        dy (int, optional): The amplitude threshold for peak identification. Defaults to 1.
+        dx (float): The coordinates of the point to rotate
+        dy (float, optional): The amplitude threshold for peak identification. Defaults to 1.
 
     Returns:
         np.ndarray: Flattened array of tuples
@@ -743,6 +743,30 @@ def create_cross_mask(img, length, x_coord, y_coord):
     return grid
 
 
+def create_rectangular_mask(img, width, height, x_coord, y_coord):
+    """Generates a mask for an roi at the given coordinates
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        width (int): Integer radius of the circular roi
+        height (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    grid = np.zeros(img.shape, dtype=np.bool_)
+
+    half_width = int(width / 2)
+    half_height = int(height / 2)
+
+    x_start = int(x_coord - half_width)
+    y_start = int(y_coord - half_height)
+    grid[y_start: y_start + height, x_start: x_start + width] = True
+    return grid
+
+
 def create_circular_mask(img, radius, x_coord, y_coord):
     """Generates a mask for an roi at the given coordinates
 
@@ -806,6 +830,25 @@ def create_cross_roi_at(img, width, x_coord, y_coord):
         np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
     """
     mask = create_cross_mask(img, width, x_coord, y_coord)
+    masked_img = np.ma.masked_array(img.copy(), mask=~mask, fill_value=0)
+    return masked_img
+
+
+def create_rectangular_roi_at(img, width, height, x_coord, y_coord):
+    """Generates a masked array delimiting the area of interest. It assists numpy in determining what data to use in
+    math operations.
+
+    Args:
+        img (np.ndarray|np.ma.MaskedArray): pixel array containing the data where to generate roi
+        width (int): Integer radius of the circular roi
+        height (int): Integer radius of the circular roi
+        x_coord (int): x coordinate of the center of the roi
+        y_coord (int): y coordinate of the center of the roi
+
+    Returns:
+        np.ma.MaskedArray: Masked Array containing data for area of interest and zeros everywhere else.
+    """
+    mask = create_rectangular_mask(img, width, height, x_coord, y_coord)
     masked_img = np.ma.masked_array(img.copy(), mask=~mask, fill_value=0)
     return masked_img
 
