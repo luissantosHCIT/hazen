@@ -378,9 +378,6 @@ class ACRSpatialResolution(HazenTask):
         logger.info(f"Pixel Resolution => {dx, dy}")
         logger.info(f"ROI width        => {width}")
 
-        # TODO: Add Unit tests
-        # TODO: Validate results
-
         # Generate preprocessed ROIs
         task_args = []
         roi_coords = []
