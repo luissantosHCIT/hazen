@@ -939,9 +939,10 @@ def debug_image_sample(img, out_path=None):
         out_path (str): file path where you would like to save a copy of the image
 
     """
-    snapshot = DebugSnapshotShow(img).image
-    if not out_path is None:
-        snapshot.save(out_path, format="PNG", dpi=(300, 300))
+    if len(img):
+        snapshot = DebugSnapshotShow(img).image
+        if not out_path is None:
+            snapshot.save(out_path, format="PNG", dpi=(300, 300))
 
 
 def debug_image_sample_circles(img, circles=[], out_path=None):
@@ -956,7 +957,7 @@ def debug_image_sample_circles(img, circles=[], out_path=None):
     for circle in circles[-1]:
         logger.info(f'Center {circle[0]}, {circle[1]}')
         center = (int(circle[0]), int(circle[1]))
-        cv2.circle(img, center, int(circle[2]), (0, 255, 0), 1)
+        cv.circle(img, center, int(circle[2]), (0, 255, 0), 1)
     debug_image_sample(img, out_path)
 
 
