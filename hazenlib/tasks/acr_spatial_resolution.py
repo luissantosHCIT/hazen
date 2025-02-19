@@ -88,9 +88,11 @@ class ACRSpatialResolution(HazenTask):
 
     ROI_OFFSET = 23         #: 23mm separation between ROIs
     BASE_UL_X_OFFSET = -16  #: -16mm from centroid for 1.1mm resolution array
-    BASE_UL_Y_OFFSET = 34   #: 34mm from centroid for 1.1mm resolution array
-    BASE_LR_X_OFFSET = -9   #: -9mm from centroid for 1.1mm resolution array
+    BASE_UL_Y_OFFSET = 35   #: 35mm from centroid for 1.1mm resolution array
+    BASE_LR_X_OFFSET = -10  #: -9mm from centroid for 1.1mm resolution array
     BASE_LR_Y_OFFSET = 42   #: 42mm from centroid for 1.1mm resolution array
+    DEFAULT_GROUP_SIZE = 2  #: If a dataset is a 1mm resolution, the crop roi is sized such that we can check a row's
+                            # value by looking at pairs of rows in data
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -114,25 +116,13 @@ class ACRSpatialResolution(HazenTask):
 
         try:
             detected_rows = self.get_spatially_resolved_rows(dcm)
-            best_resolution = self.get_best_resolution(detected_rows)
+            hole_arrays = self.get_resolved_arrays(detected_rows)
+            best_resolution = self.get_best_resolution(hole_arrays)
 
             results["measurement"] = {
                 "resolution": best_resolution,
                 "resolution_units": "mm",
-                "rows": {
-                    1.1: {
-                        'UL': detected_rows[0],
-                        'LR': detected_rows[1]
-                    },
-                    1.0: {
-                        'UL': detected_rows[2],
-                        'LR': detected_rows[3]
-                    },
-                    0.9: {
-                        'UL': detected_rows[4],
-                        'LR': detected_rows[5]
-                    }
-                }
+                "rows": hole_arrays
             }
         except Exception as e:
             print(
@@ -198,7 +188,7 @@ class ACRSpatialResolution(HazenTask):
         lr_roi_center = roi_coords[1]
         axes['lr1'].annotate("LR", (-30, lr_roi_center[1] / 4), xycoords='axes pixels', fontsize='large')
 
-        for i in range(0, len(processed_rois), 2):
+        for i in range(0, len(processed_rois), self.DEFAULT_GROUP_SIZE):
             ul = processed_rois[i][1]
             lr = processed_rois[i + 1][1]
             indx = int(i / 2) + 1
@@ -217,23 +207,43 @@ class ACRSpatialResolution(HazenTask):
         fig.savefig(img_path)
         self.report_files.append(img_path)
 
-    def get_best_resolution(self, detected_rows):
+    def get_resolved_arrays(self, detected_rows):
         """Iterates through the detected roi scores. Since these come in UL/LR pairs, the presence of -1 in any of the
         paired items disqualifies the hole array from being a resolved image. Go from 1.1 to 0.9 array and record
-        which is the highest resolution we detected. Return this value.
+        which arrays were resolved. Return this struct.
 
         Args:
             detected_rows (list of int): CList of ints describing each roi's resolved row.
 
         Returns:
-            str: Highest resolution from a set of 1.1, 1.0, and 0.9.
+            dict: Hole array results.
         """
-        best_resolution = '1.1'
-        for i in range(0, len(detected_rows), 2):
+        resolved_arrays = {}
+        for i in range(0, len(detected_rows), self.DEFAULT_GROUP_SIZE):
             ul = detected_rows[i]
             lr = detected_rows[i + 1]
-            if min(ul, lr) != -1:
-                best_resolution = str(np.round(1.1 - 0.1 * int(i / 2), 1))
+            resolved = min(ul, lr) != -1
+            resolution = np.round(1.1 - 0.1 * int(i / self.DEFAULT_GROUP_SIZE), 1)
+            resolved_arrays.update({resolution: {
+                "UL": ul,
+                "LR": lr,
+                "resolved": resolved
+            }})
+        return resolved_arrays
+
+    def get_best_resolution(self, hole_arrays):
+        """Iterates through the hole arrays and extract which of the resolved resolutions is best.
+
+        Args:
+            hole_arrays (dict): Array resolution struct results.
+
+        Returns:
+            float: Highest resolution from a set of 1.1, 1.0, and 0.9.
+        """
+        best_resolution = 9.9
+        for k, v in hole_arrays.items():
+            if v['resolved']:
+                best_resolution = k
         return best_resolution
 
     def get_processed_roi(self, img, width, height, loc):
@@ -276,14 +286,14 @@ class ACRSpatialResolution(HazenTask):
         crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
 
         # Upsampling step
-        zoom_level = 3  # The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
-        zoom = self.ACR_obj.zoom(crop_img, 3)
+        zoom_level = 4 # The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
+        zoom = self.ACR_obj.zoom(crop_img, zoom_level)
 
         # Denoising step
         smoothed = self.ACR_obj.filter_with_gaussian(zoom, 0.5)
 
         # Difference of Gaussians step
-        dog = self.ACR_obj.filter_with_dog(smoothed, 0.5, 1, gamma=0.5)
+        dog = self.ACR_obj.filter_with_dog(smoothed, 0.5 / self.ACR_obj.dx, 1 / self.ACR_obj.dx)
 
         # Binarization step
         binarized = self.ACR_obj.binarize_image(dog, 90)
@@ -294,7 +304,7 @@ class ACRSpatialResolution(HazenTask):
         # Return denoised and normalized (0 to 1) results.
         return smoothed, self.ACR_obj.normalize(downsampled, 1)
 
-    def find_resolved_row(self, roi, ul=True):
+    def find_resolved_row(self, roi, grouping_size=2, ul=True):
         """Goes row by row and detects the number of intensity peaks present.
         To make accuracy robust to signal that bleeds into an otherwise empty row, I check for the max count in pairs of
         rows starting with the first row that contains any signal.
@@ -315,6 +325,7 @@ class ACRSpatialResolution(HazenTask):
 
         Args:
             roi (np.ndarray|np.ma.MaskedArray): Cropped image data
+            grouping_size (int): How many data rows represent a single "true" result row. Defaults to 2 for a 1mm.
             ul (bool): Whether the input is the UL or LR ROI. We want to rotate the LR input such that we can apply the
                         same row traversal
 
@@ -331,8 +342,10 @@ class ACRSpatialResolution(HazenTask):
             peaks, intensities = self.ACR_obj.find_n_highest_peaks(roi[i], row_length)
             vals[i] = len(peaks)
         vals = np.trim_zeros(vals, 'f')
-        vals = [np.max(vals[i:i + 2]).astype(np.int_) for i in range(0, len(vals), 2)]
+        vals = [np.max(vals[i:i + grouping_size]).astype(np.int_) for i in range(0, len(vals), grouping_size)]
         vals = np.trim_zeros(vals, 'b')
+        vals = vals[0:4]  # We should only have 4 rows; anything else is an artefact and cannot be relied on as true.
+                          # If we have not resolved any rows within the first 4, this array is probably unresolvable.
         logger.info(f'Row spots detected {vals}')
         for i in range(len(vals)):
             if vals[i] == 4:
@@ -359,7 +372,7 @@ class ACRSpatialResolution(HazenTask):
         # Detect Phantom center.
         dx, dy = float(self.ACR_obj.dx), float(self.ACR_obj.dy)
         cxy, _ = self.ACR_obj.find_phantom_center(img, dx, dy)
-        width = int(np.round(12 / dx))
+        width = int(np.round(14 / dx))
 
         logger.info(f"Center           => {cxy}")
         logger.info(f"Pixel Resolution => {dx, dy}")
@@ -388,10 +401,11 @@ class ACRSpatialResolution(HazenTask):
         processed_rois = wait_on_parallel_results(self.get_processed_roi, task_args)
 
         # Detect resolved row/column in each ROI.
+        group_size = int(np.round(self.DEFAULT_GROUP_SIZE / dx))
         task_args.clear()
-        for i in range(0, len(processed_rois), 2):
-            task_args.append((processed_rois[i][1], True))
-            task_args.append((processed_rois[i + 1][1], False))
+        for i in range(0, len(processed_rois), self.DEFAULT_GROUP_SIZE):
+            task_args.append((processed_rois[i][1], group_size, True))
+            task_args.append((processed_rois[i + 1][1], group_size, False))
         detected_rows = wait_on_parallel_results(self.find_resolved_row, task_args)
 
         logger.info(f'Detected rows => {detected_rows}')
