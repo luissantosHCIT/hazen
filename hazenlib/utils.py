@@ -450,10 +450,11 @@ def determine_orientation(dcm_list):
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
-    iop = dcm_list[0].ImageOrientationPatient
+    iop = [np.round(c) for c in dcm_list[0].ImageOrientationPatient]
     x = np.array([round(dcm.ImagePositionPatient[0]) for dcm in dcm_list])
     y = np.array([round(dcm.ImagePositionPatient[1]) for dcm in dcm_list])
     z = np.array([round(dcm.ImagePositionPatient[2]) for dcm in dcm_list])
+    logger.debug(f'Image orientation cosines => {iop}')
 
     # Determine phantom orientation based on DICOM header metadata
     # Assume phantom orientation based on ImageOrientationPatient
@@ -698,9 +699,9 @@ def detect_centroid(img, dx, dy):
 
 def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
     """Calculates the radius of an ROI given an area. The radius is in pixel count. Meaning, if we want to get the
-    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution = 0.5`,
-    and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the resolution to yield
-    the radius in pixel count units.
+    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution
+    = 0.5`, and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the
+    resolution to yield the radius in pixel count units.
 
     Args:
         area (int): Area of ROI that will be generated with the radius calculated in this function
