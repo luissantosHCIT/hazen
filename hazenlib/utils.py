@@ -450,7 +450,7 @@ def determine_orientation(dcm_list):
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
-    iop = dcm_list[0].ImageOrientationPatient
+    iop = [np.round(c) for c in dcm_list[0].ImageOrientationPatient]
     x = np.array([round(dcm.ImagePositionPatient[0]) for dcm in dcm_list])
     y = np.array([round(dcm.ImagePositionPatient[1]) for dcm in dcm_list])
     z = np.array([round(dcm.ImagePositionPatient[2]) for dcm in dcm_list])
@@ -490,6 +490,7 @@ def determine_orientation(dcm_list):
             return "axial", z
         else:
             logger.warning("Unable to determine orientation based on DICOM metadata")
+            logger.info(f'Image orientation cosines => {iop}')
             logger.info("x %s", set(x))
             logger.info("y %s", set(y))
             logger.info("z %s", set(z))
@@ -698,9 +699,9 @@ def detect_centroid(img, dx, dy):
 
 def compute_radius_from_area(area, voxel_resolution, conversion_value=10):
     """Calculates the radius of an ROI given an area. The radius is in pixel count. Meaning, if we want to get the
-    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution = 0.5`,
-    and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the resolution to yield
-    the radius in pixel count units.
+    radius for a 200cm2 ROI in a 0.5mm in-plane resolution, we call this function `with area = 200`, `voxel_resolution
+    = 0.5`, and `conversion_value = 10`. This will yield a radius in mm which immediately gets divided by the
+    resolution to yield the radius in pixel count units.
 
     Args:
         area (int): Area of ROI that will be generated with the radius calculated in this function
@@ -939,9 +940,10 @@ def debug_image_sample(img, out_path=None):
         out_path (str): file path where you would like to save a copy of the image
 
     """
-    snapshot = DebugSnapshotShow(img).image
-    if not out_path is None:
-        snapshot.save(out_path, format="PNG", dpi=(300, 300))
+    if len(img):
+        snapshot = DebugSnapshotShow(img).image
+        if not out_path is None:
+            snapshot.save(out_path, format="PNG", dpi=(300, 300))
 
 
 def debug_image_sample_circles(img, circles=[], out_path=None):
@@ -956,7 +958,7 @@ def debug_image_sample_circles(img, circles=[], out_path=None):
     for circle in circles[-1]:
         logger.info(f'Center {circle[0]}, {circle[1]}')
         center = (int(circle[0]), int(circle[1]))
-        cv2.circle(img, center, int(circle[2]), (0, 255, 0), 1)
+        cv.circle(img, center, int(circle[2]), (0, 255, 0), 1)
     debug_image_sample(img, out_path)
 
 

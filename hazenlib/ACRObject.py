@@ -140,7 +140,7 @@ class ACRObject:
         return rotated_images
 
     @staticmethod
-    def find_phantom_center(img, dx, dy):
+    def find_phantom_center(img, dx, dy, axial=True):
         """Find the center of the ACR phantom in a given slice (pixel array) \n
         using the Hough circle detector on a blurred image.
 
@@ -148,18 +148,87 @@ class ACRObject:
             img (np.ndarray): pixel array of the DICOM image.
             dx (float): pixel array of the DICOM image.
             dy (float): pixel array of the DICOM image.
+            axial (bool): Whether we are attempting to detect the center of the axial dataset.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
         """
         logger.info("Detecting centroid location ...")
-        detected_circles = detect_centroid(img, dx, dy)
-        centre_x = int(np.round(detected_circles[1]))
-        centre_y = int(np.round(detected_circles[0]))
-        radius = np.round(detected_circles[2])
+        if axial:
+            detected_circles = detect_centroid(img, dx, dy)
+            centre_x = int(np.round(detected_circles[1]))
+            centre_y = int(np.round(detected_circles[0]))
+            radius = np.round(detected_circles[2])
+        else:
+            # This is meant for sagittal localizers so that we can identify their center.
+            bbox, area = ACRObject.find_largest_rectangle(img)
+            centre_x = int(np.round(bbox[0] + (bbox[2] / 2)))
+            centre_y = int(np.round(bbox[1] + (bbox[3] / 2)))
+            radius = (bbox[2], bbox[3])
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
         return (centre_x, centre_y), radius
+
+    @staticmethod
+    def find_all_rectangles(img):
+        """Find all contours and report the rectangles found in image.
+
+        Preprocessing Steps
+        ___________________
+
+            #. Normalize image to 8bit.
+            #. Smooth it with a sigma of 1.
+            #. Apply Canny operator to obtain the edge feature map.
+
+        Processing Steps
+        ________________
+
+            #. Pass edges to OpenCV
+            #. Remove convexity from contours.
+            #. Force rough rectangular approximation. We just want the general rectangles in image.
+            #. Return list of rectangles (points).
+
+        Args:
+            img (np.ndarray): pixel array of the DICOM image.
+
+        Returns:
+            list of np.ndarray: List of arrays containing rectangle points in space.
+        """
+        normalized = ACRObject.normalize(img)
+        img_blur = ACRObject.filter_with_gaussian(normalized, dtype=normalized.dtype)
+        canny = cv2.Canny(img_blur, 10, 240)
+        contours = cv2.findContours(canny, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+
+        rectangles = []
+        for c in contours:
+            convex = cv2.convexHull(c)
+            epsilon = 0.1 * cv2.arcLength(convex, True)
+            approx = cv2.approxPolyDP(convex, epsilon, True)
+            rectangles.append(approx)
+        return rectangles
+
+    @staticmethod
+    def find_largest_rectangle(img):
+        """Calls :py:meth:`find_all_rectangles` to obtain the set of rectangles in image.
+        We then iterate through this list of rectangles and return the bounding box and area of the largest rectangle
+        in image.
+
+        Args:
+            img (np.ndarray): pixel array of the DICOM image.
+
+        Returns:
+            tuple: Bounding box and area of rectangle.
+        """
+        contours = ACRObject.find_all_rectangles(img)
+        largest_c = None
+        largest_area = 0
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area > largest_area:
+                largest_area = area
+                largest_c = c
+        bounding_box = cv2.boundingRect(largest_c)
+        return bounding_box, largest_area
 
     @staticmethod
     def get_presentation_pixels(dcm):
@@ -354,7 +423,7 @@ class ACRObject:
 
         return mask
 
-    def measure_orthogonal_lengths(self, mask, cxy):
+    def measure_orthogonal_lengths(self, mask, cxy, h_offset=(0,0), v_offset=(0,0)):
         """Compute the horizontal and vertical lengths of a mask, based on the centroid.
 
         Args:
@@ -375,16 +444,16 @@ class ACRObject:
         dims = mask.shape
         (vertical, horizontal) = cxy
 
-        horizontal_start = (horizontal, 0)
-        horizontal_end = (horizontal, dims[0] - 1)
+        horizontal_start = (horizontal + h_offset[1], 0)
+        horizontal_end = (horizontal + h_offset[1], dims[0] - 1 + h_offset[0])
         horizontal_line_profile = skimage.measure.profile_line(
             mask, horizontal_start, horizontal_end
         )
         horizontal_extent = np.nonzero(horizontal_line_profile)[0]
         horizontal_distance = (horizontal_extent[-1] - horizontal_extent[0]) * self.dx
 
-        vertical_start = (0, vertical)
-        vertical_end = (dims[1] - 1, vertical)
+        vertical_start = (0 + v_offset[1], vertical + v_offset[0])
+        vertical_end = (dims[1] - 1 + v_offset[1], vertical + v_offset[0])
         vertical_line_profile = skimage.measure.profile_line(
             mask, vertical_start, vertical_end
         )
