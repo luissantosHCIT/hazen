@@ -1,37 +1,83 @@
 """
-ACR Geometric Accuracy
+ACR Sagittal Geometric Accuracy
+__________________________________________
 
-https://www.acraccreditation.org/-/media/acraccreditation/documents/mri/largephantomguidance.pdf
+Reference
+_________
 
-Calculates geometric accuracy for slices 1 and 5 of the ACR phantom.
+`ACR Large Phantom Guidance PDF <https://accreditationsupport.acr.org/helpdesk/attachments/11093487417>`_
 
-This script calculates the horizontal and vertical lengths of the ACR phantom in Slice 1 in accordance with the ACR
-Guidance.
-This script calculates the horizontal, vertical and diagonal lengths of the ACR phantom in Slice 5 in accordance with
-the ACR Guidance.
-The average distance measurement error, maximum distance measurement error and coefficient of variation of all distance
-measurements is reported as recommended by IPEM Report 112, "Quality Control and Artefacts in Magnetic Resonance
-Imaging".
+Intro
+_____
 
-This is done by first producing a binary mask for each respective slice. Line profiles are drawn with aid of rotation
-matrices around the centre of the test object to determine each respective length. The results are also visualised.
+The ACR Geometric Accuracy Task has an additional task in which you obtain the Sagittal Localizer and measure the
+vertical distance from top to bottom of the rectangular shape. The measurement is performed about 15 mm offset from
+center per their example. I think the idea is that you can avoid any phantom positional errors that might present
+towards the edges of the rectangle. At any rate, this task is a modified version of the axial task.
 
-Created by Yassine Azma
-yassine.azma@rmh.nhs.uk
+ACR Guidelines
+______________
 
-18/11/2022
+ACR Algorithm
++++++++++++++
+
+    #. Display the ACR sagittal localizer image. Adjust the display window and level as described below.
+    #. Measure the superior to inferior (head to foot) length of the phantom along a line close to the middle
+        of the phantom as shown in Figure 2.
+                                    ...
+    #. Display slice 1 of the ACR T1 series. Adjust the display window and level as described below.
+    #. Measure the diameter of the phantom in 2 directions: top-to-bottom and left-to-right (Figure 2).
+    #. Determine the window level setting to measure slice 5 of the ACR T1 series, as described below.
+        Display slice 5 with that window and level.
+    #. Measure the diameter of the phantom in 4 directions: top-to-bottom, left-to-right, and both diagonals.
+
+ACR Scoring Rubric
+++++++++++++++++++
+
+Phantom     Sagittal length     Pass/Fail Limit     Axial diameter      Pass/Fail Limit
+            (mm)                (mm)                (mm)                (mm)
+_______     _______________     _______________     ______________      _______________
+Large       148                 148 +/- 3.0         190                 190 +/- 3.0
+Medium      134                 134 +/- 2.0         165                 165 +/- 2.0
+
+Notes
+_____
+
+.. note::
+
+    Some MR vendors provide the ability to select gradient distortion correction at the operator console. For
+    these systems be sure that the distortion correction option is turned on; leaving distortion correction off can
+    cause geometric accuracy failure.
+
+.. note::
+
+    A common cause of failure of this test is miscalibration of one or more gradients. A mis-calibrated gradient
+    causes its associated image dimension (x, y, or z) to appear longer or shorter than it really is. Mis-calibrated
+    gradients also can cause slice position errors. It is normal for gradient calibration to drift over time and to
+    require recalibration by the service engineer.
+
+.. note::
+
+    Another possible cause of failure is use of an excessively low acquisition bandwidth. It is common practice
+    on low B0 field scanners and at some facilities to reduce acquisition bandwidth, especially on long TE
+    acquisitions, to increase signal-to-noise ratio (SNR). This can be pushed to the point that the normal
+    inhomogeneities in B0 manifest themselves as spatial distortions in the image. On most scanners the default
+    bandwidth for T1-weighted acquisitions is set high enough to avoid this problem. If the geometric accuracy
+    test measurements fail, and the ACR T1 series was acquired at low bandwidth, try acquiring that series again
+    at a higher bandwidth to see if the problem is eliminated.
+
+Created by Luis M. Santos, M.D.
+luis.santos2@nih.gov
+
+2/20/2025
 """
 
 import os
 import sys
 import traceback
 
-import cv2
 import numpy as np
 
-import skimage.measure
-import skimage.transform
-import skimage.morphology
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
@@ -47,10 +93,13 @@ class ACRSagittalGeometricAccuracy(HazenTask):
         self.ACR_obj = ACRObject(self.dcm_list)
 
     def run(self) -> dict:
-        """Main function for performing geometric accuracy measurement using the first and fifth slices from the ACR phantom image set.
+        """Main function for performing geometric accuracy measurement using the first and fifth slices from the
+        ACR phantom image set.
 
         Returns:
-            dict: results are returned in a standardised dictionary structure specifying the task name, input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs, optionally path to the generated images for visualisation.
+            dict: results are returned in a standardised dictionary structure specifying the task name,
+                input DICOM Series Description + SeriesNumber + InstanceNumber, task measurement key-value pairs,
+                optionally path to the generated images for visualisation.
         """
         dcm = self.ACR_obj.slice_stack[0]
         img_desc = self.img_desc(dcm)
@@ -120,16 +169,23 @@ class ACRSagittalGeometricAccuracy(HazenTask):
 
 
     def get_geometric_accuracy(self, dcm):
-        """Measure geometric accuracy for input slice. \n
-        Creates a mask over the phantom from the pixel array of the DICOM image.
-        Uses the centre and shape of the mask to determine horizontal and vertical lengths,
-        and also diagonal lengths in slice 5.
+        """Measures Vertical distance of the Sagittal Localizer.
+
+        Steps
+        _____
+
+            #. Grabs slice 1
+            #. Creates a mask over the phantom from the pixel array of the DICOM image.
+            #. Finds center of phantom
+            #. Computes offset from center.
+            #. Samples a vertical line profile at that offset.
+            #. Computes distance.
 
         Args:
-            slice_index (int): the index of the slice position, for example slice 5 is at index 4.
+            dcm (pydicom.Dataset): slice 1
 
         Returns:
-            tuple of float: horizontal and vertical distances.
+            float: vertical distance.
         """
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
 
