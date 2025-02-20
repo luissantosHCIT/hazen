@@ -454,7 +454,6 @@ def determine_orientation(dcm_list):
     x = np.array([round(dcm.ImagePositionPatient[0]) for dcm in dcm_list])
     y = np.array([round(dcm.ImagePositionPatient[1]) for dcm in dcm_list])
     z = np.array([round(dcm.ImagePositionPatient[2]) for dcm in dcm_list])
-    logger.debug(f'Image orientation cosines => {iop}')
 
     # Determine phantom orientation based on DICOM header metadata
     # Assume phantom orientation based on ImageOrientationPatient
@@ -491,6 +490,7 @@ def determine_orientation(dcm_list):
             return "axial", z
         else:
             logger.warning("Unable to determine orientation based on DICOM metadata")
+            logger.info(f'Image orientation cosines => {iop}')
             logger.info("x %s", set(x))
             logger.info("y %s", set(y))
             logger.info("z %s", set(z))
