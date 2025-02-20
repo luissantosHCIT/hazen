@@ -148,6 +148,7 @@ class ACRObject:
             img (np.ndarray): pixel array of the DICOM image.
             dx (float): pixel array of the DICOM image.
             dy (float): pixel array of the DICOM image.
+            axial (bool): Whether we are attempting to detect the center of the axial dataset.
 
         Returns:
             tuple of ints: (x, y) coordinates of the center of the image
@@ -159,6 +160,7 @@ class ACRObject:
             centre_y = int(np.round(detected_circles[0]))
             radius = np.round(detected_circles[2])
         else:
+            # This is meant for sagittal localizers so that we can identify their center.
             bbox, area = ACRObject.find_largest_rectangle(img)
             centre_x = int(np.round(bbox[0] + (bbox[2] / 2)))
             centre_y = int(np.round(bbox[1] + (bbox[3] / 2)))
@@ -169,6 +171,29 @@ class ACRObject:
 
     @staticmethod
     def find_all_rectangles(img):
+        """Find all contours and report the rectangles found in image.
+
+        Preprocessing Steps
+        ___________________
+
+            #. Normalize image to 8bit.
+            #. Smooth it with a sigma of 1.
+            #. Apply Canny operator to obtain the edge feature map.
+
+        Processing Steps
+        ________________
+
+            #. Pass edges to OpenCV
+            #. Remove convexity from contours.
+            #. Force rough rectangular approximation. We just want the general rectangles in image.
+            #. Return list of rectangles (points).
+
+        Args:
+            img (np.ndarray): pixel array of the DICOM image.
+
+        Returns:
+            list of np.ndarray: List of arrays containing rectangle points in space.
+        """
         normalized = ACRObject.normalize(img)
         img_blur = ACRObject.filter_with_gaussian(normalized, dtype=normalized.dtype)
         canny = cv2.Canny(img_blur, 10, 240)
@@ -184,6 +209,16 @@ class ACRObject:
 
     @staticmethod
     def find_largest_rectangle(img):
+        """Calls :py:meth:`find_all_rectangles` to obtain the set of rectangles in image.
+        We then iterate through this list of rectangles and return the bounding box and area of the largest rectangle
+        in image.
+
+        Args:
+            img (np.ndarray): pixel array of the DICOM image.
+
+        Returns:
+            tuple: Bounding box and area of rectangle.
+        """
         contours = ACRObject.find_all_rectangles(img)
         largest_c = None
         largest_area = 0
