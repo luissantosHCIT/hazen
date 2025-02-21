@@ -129,6 +129,7 @@ class ACRObjectDetectability(HazenTask):
         8: 2.0,
         9: 2.0,
     }
+    FIRST_SLICE_NUM = 8
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -367,7 +368,7 @@ class ACRObjectDetectability(HazenTask):
                     'center': (center_x, center_y)
                 }
         """
-        slice_id = 8 + slice_num
+        slice_id = self.FIRST_SLICE_NUM + slice_num
         logger.info(f'Processing slice # {slice_id}')
 
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
@@ -475,8 +476,7 @@ class ACRObjectDetectability(HazenTask):
         results = {
             "meta": {
                 "field_strength": field_strength,
-                "slice_scores": [],
-                "score": 0
+                "measurement": {}
             },
             "data": {}
         }
@@ -490,11 +490,11 @@ class ACRObjectDetectability(HazenTask):
         for i in range(4):
             results["data"][i] = result_data[i]
             slice_score = results["data"][i]['score']
-            results["meta"]["slice_scores"].append(slice_score)
+            results["meta"]["measurement"][self.FIRST_SLICE_NUM + i] = slice_score
             score += slice_score
 
         # Append meta data about results
-        results["meta"]["score"] = score
+        results["meta"]["measurement"]["total_score"] = score
         logger.info(results["meta"])
 
         # Generate report
