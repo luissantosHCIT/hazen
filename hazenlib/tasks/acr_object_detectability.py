@@ -485,7 +485,6 @@ class ACRObjectDetectability(HazenTask):
 
         # Append meta data about results
         results["meta"]["measurement"]["total_score"] = score
-        logger.info(results["meta"])
 
         # Generate report
         if self.report:
