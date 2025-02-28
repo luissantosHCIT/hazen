@@ -14,6 +14,8 @@ class TestACRSpatialResolutionSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
     EXPECTED_RESOLVED_ROWS = [1, 1, 1, 1, 1, -1]
     EXPECTED_UNRESOLVED_ARRAY = [0.9]
+    EXPECTED_UL_RESOLUTION = 1.0
+    EXPECTED_LR_RESOLUTION = 1.0
     EXPECTED_RESOLUTION = 1.0
 
     def setUp(self):
@@ -27,9 +29,11 @@ class TestACRSpatialResolutionSiemens(unittest.TestCase):
         self.dcm = self.acr_spatial_resolution_task.ACR_obj.slice_stack[0]
         self.detected_rows = self.acr_spatial_resolution_task.get_spatially_resolved_rows(self.dcm)
         self.resolved_arrays = self.acr_spatial_resolution_task.get_resolved_arrays(self.detected_rows)
-        self.best_resolution = self.acr_spatial_resolution_task.get_best_resolution(self.resolved_arrays)
+        self.ul_resolution, self.lr_resolution, self.best_resolution = self.acr_spatial_resolution_task.get_best_resolution(self.resolved_arrays)
 
     def test_get_best_resolution(self):
+        assert self.EXPECTED_UL_RESOLUTION == self.ul_resolution
+        assert self.EXPECTED_LR_RESOLUTION == self.lr_resolution
         assert self.EXPECTED_RESOLUTION == self.best_resolution
 
     def test_unresolved_array(self):
@@ -44,6 +48,8 @@ class TestACRSpatialResolutionSiemensSolaFit(TestACRSpatialResolutionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
     EXPECTED_RESOLVED_ROWS = [1, 2, 1, 2, 2, 2]
     EXPECTED_UNRESOLVED_ARRAY = []
+    EXPECTED_UL_RESOLUTION = 0.9
+    EXPECTED_LR_RESOLUTION = 0.9
     EXPECTED_RESOLUTION = 0.9
 
 
@@ -51,6 +57,8 @@ class TestACRSpatialResolutionPhilipsAchieva(TestACRSpatialResolutionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
     EXPECTED_RESOLVED_ROWS = [1, 1, 1, 1, -1, -1]
     EXPECTED_UNRESOLVED_ARRAY = [0.9]
+    EXPECTED_UL_RESOLUTION = 1.0
+    EXPECTED_LR_RESOLUTION = 1.0
     EXPECTED_RESOLUTION = 1.0
 
 
@@ -58,4 +66,6 @@ class TestACRSpatialResolutionGE(TestACRSpatialResolutionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
     EXPECTED_RESOLVED_ROWS = [1, 1, 2, 1, 1, 1]
     EXPECTED_UNRESOLVED_ARRAY = []
+    EXPECTED_UL_RESOLUTION = 0.9
+    EXPECTED_LR_RESOLUTION = 0.9
     EXPECTED_RESOLUTION = 0.9
