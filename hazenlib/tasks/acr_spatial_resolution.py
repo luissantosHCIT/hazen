@@ -117,16 +117,18 @@ class ACRSpatialResolution(HazenTask):
         try:
             detected_rows = self.get_spatially_resolved_rows(dcm)
             hole_arrays = self.get_resolved_arrays(detected_rows)
-            best_resolution = self.get_best_resolution(hole_arrays)
+            ul_resolution, lr_resolution, best_resolution = self.get_best_resolution(hole_arrays)
 
             results["measurement"] = {
+                "resolution_ul": ul_resolution,
+                "resolution_lr": lr_resolution,
                 "resolution": best_resolution,
                 "resolution_units": "mm",
                 "rows": hole_arrays
             }
         except Exception as e:
             print(
-                f"Could not calculate the spatial resolution for {self.img_desc(mtf_dcm)} because of : {e}"
+                f"Could not calculate the spatial resolution for {self.img_desc(dcm)} because of : {e}"
             )
             traceback.print_exc(file=sys.stdout)
 
@@ -238,13 +240,25 @@ class ACRSpatialResolution(HazenTask):
             hole_arrays (dict): Array resolution struct results.
 
         Returns:
-            float: Highest resolution from a set of 1.1, 1.0, and 0.9.
+            tuple of floats:
+
+                #. Highest resolution among Upper Left ROIs.
+                #. Highest resolution among Lower Right ROIs.
+                #. Highest resolution from a set of 1.1, 1.0, and 0.9.
         """
-        best_resolution = 9.9
+        ul_resolution = 99
+        lr_resolution = 99
+        best_resolution = 99
         for k, v in hole_arrays.items():
+            ul = v['UL']
+            lr = v['LR']
+            if ul > -1 and k < ul_resolution:
+                ul_resolution = k
+            if lr > -1 and k < lr_resolution:
+                lr_resolution = k
             if v['resolved']:
                 best_resolution = k
-        return best_resolution
+        return ul_resolution, lr_resolution, best_resolution
 
     def get_processed_roi(self, img, width, height, loc):
         """Takes an input image and applies a series of preprocessing steps meant to optimize the output for robust
