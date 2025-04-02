@@ -281,7 +281,7 @@ class ACRObjectDetectability(HazenTask):
 
     def get_img_center(self, img):
         (center_x, center_y), _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
-        offsetted_y = np.round(center_y + 7 / self.ACR_obj.dy)
+        offsetted_y = np.round(center_y + 5 / self.ACR_obj.dy)
         return (np.round(center_x - self.ACR_obj.dx), np.round(offsetted_y))
 
     def detect_objects(self, dcm, field_strength, slice_num):
