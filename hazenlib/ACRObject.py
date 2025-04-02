@@ -156,8 +156,8 @@ class ACRObject:
         logger.info("Detecting centroid location ...")
         if axial:
             detected_circles = detect_centroid(img, dx, dy)
-            centre_x = int(np.round(detected_circles[1]))
-            centre_y = int(np.round(detected_circles[0]))
+            centre_x = int(np.round(detected_circles[0]))
+            centre_y = int(np.round(detected_circles[1]))
             radius = np.round(detected_circles[2])
         else:
             # This is meant for sagittal localizers so that we can identify their center.
