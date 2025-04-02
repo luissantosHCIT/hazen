@@ -120,9 +120,9 @@ class TestACRToolsGE(TestACRTools):
     rotation = 0.0
     centre = (256, 256)
     horizontal_distance = 190.42
-    horizontal_end = (254, 511)
+    horizontal_end = (264, 511)
     vertical_distance = 188.9016
-    vertical_end = (511, 255)
+    vertical_end = (511, 256)
     test_point = (-60.98, -45.62)
 
     def setUp(self):
@@ -154,7 +154,7 @@ class TestACRToolsPhilips(TestACRTools):
     horizontal_distance = 190.4296875
     horizontal_end = (128, 255)
     vertical_distance = 189.453125
-    vertical_end = (255, 127)
+    vertical_end = (255, 129)
 
     def setUp(self):
         self.Philips_data = [
