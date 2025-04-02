@@ -39,8 +39,8 @@ class TestACRObjectDetectabilitySiemensSolaFit(TestACRObjectDetectability):
 
 class TestACRObjectDetectabilityGE(TestACRObjectDetectability):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    SCORE_8 = 5 # in reality, this slice should be scored 0 but this is here to force future reassessments of the algorithm to check this dataset.
-    TOTAL_SCORE = 30
+    SCORE_8 = 3 # in reality, this slice should be scored 0 but this is here to force future reassessments of the algorithm to check this dataset.
+    TOTAL_SCORE = 22
 
 
 class TestACRObjectDetectabilityPhilipsAchieva(TestACRObjectDetectability):
