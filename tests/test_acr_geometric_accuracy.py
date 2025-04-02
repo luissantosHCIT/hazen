@@ -61,18 +61,18 @@ class TestACRGeometricAccuracySiemens(unittest.TestCase):
 # TODO: Add unit tests for Philips datasets (when Philips data is available).
 class TestACRGeometricAccuracyGE(TestACRGeometricAccuracySiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    L1 = 190.93, 188.9
-    L5 = 190.42, 189.41, 190.42, 189.92
-    distortion_metrics = [-0., 1.1, 0.36]
+    L1 = 190.42, 188.9
+    L5 = 190.42, 188.9, 190.42, 189.92
+    distortion_metrics = [-0.17, 1.1, 0.36]
 
 class TestACRGeometricAccuracySiemensSolaFit(TestACRGeometricAccuracySiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
     L1 = 190.43, 190.43
-    L5 = 189.45, 190.43, 190.43, 190.43
-    distortion_metrics = [0.27, 0.55, 0.19]
+    L5 = 189.45, 190.43, 189.45, 189.45
+    distortion_metrics = [-0.06, 0.55, 0.26]
 
 class TestACRGeometricAccuracyPhilipsAchieva(TestACRGeometricAccuracySiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
     L1 = 190.43, 189.45
-    L5 = 190.43, 189.45, 190.43, 188.48
-    distortion_metrics = [-0.22, 1.52, 0.38]
+    L5 = 190.43, 189.45, 189.45, 189.45
+    distortion_metrics = [-0.22, 0.55, 0.24]

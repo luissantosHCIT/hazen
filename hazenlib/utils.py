@@ -621,10 +621,9 @@ def detect_centroid(img, dx, dy):
 
     We do the following preprocessing of the input to improve accuracy:
 
-        #. Image normalization in the 8bit range.
-        #. Gaussian blurring with sigma=1.
-        #. Gaussian blurring with sigma=3
-        #. Sobel operator on quick Difference of Gaussians.
+        #. Compute laplacian of the image to extract edges.
+        #. Normalize to 8 bit.
+        #. Attempt circle detection with HughesCircle Transform from OpenCV.
 
     These preprocessing steps improve the circle contours, which are then fed into the Hough Transform.
     By the way, we try the Hough Transform with cv.HOUGH_GRADIENT_ALT first. Failing that, we try the default Hough
@@ -636,23 +635,22 @@ def detect_centroid(img, dx, dy):
         dy (float, optional): The amplitude threshold for peak identification. Defaults to 1.
 
     Returns:
-        np.ndarray: Flattened array of tuples
+        np.ndarray: Flattened array of tuples. tuples follow the form (x, y, r)
 
     """
-    normalised_img = cv.normalize(
-        src=img,
+    img_grad = cv.Laplacian(img, cv.CV_64F)
+    img_grad_8u = cv.normalize(
+        src=img_grad,
         dst=None,
         alpha=0,
         beta=255,
         norm_type=cv.NORM_MINMAX,
         dtype=cv.CV_8U,
     )
-    img_blur = cv.GaussianBlur(normalised_img, (0, 0), sigmaX=1, sigmaY=1)
-    img_grad = cv.Sobel(img_blur, 0, dx=1, dy=1)
 
     try:
         detected_circles = cv.HoughCircles(
-            img_grad,
+            img_grad_8u,
             cv.HOUGH_GRADIENT_ALT,
             1,
             param1=300,
@@ -663,7 +661,7 @@ def detect_centroid(img, dx, dy):
         )
         if detected_circles is None:
             detected_circles = cv.HoughCircles(
-                img_grad,
+                img_grad_8u,
                 cv.HOUGH_GRADIENT,
                 1,
                 param1=50,
@@ -674,7 +672,7 @@ def detect_centroid(img, dx, dy):
             )
     except AttributeError as e:
         detected_circles = cv.HoughCircles(
-            img_grad,
+            img_grad_8u,
             cv.HOUGH_GRADIENT_ALT,
             1,
             param1=300,
@@ -685,7 +683,7 @@ def detect_centroid(img, dx, dy):
         )
         if detected_circles is None:
             detected_circles = cv.HoughCircles(
-                img_grad,
+                img_grad_8u,
                 cv.HOUGH_GRADIENT,
                 1,
                 param1=50,
@@ -971,7 +969,7 @@ class DebugSnapshotShow:
     This class is meant to assist during debugging of image processing steps.
     """
 
-    def __init__(self, image_instance, target_mode=None):
+    def __init__(self, image_instance):
         from PIL import Image, ImageShow
         if isinstance(image_instance, str):
             image_instance = Image.open(image_instance)
