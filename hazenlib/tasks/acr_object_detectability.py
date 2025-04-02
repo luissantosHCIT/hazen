@@ -414,7 +414,10 @@ class ACRObjectDetectability(HazenTask):
 
         # Binarize the results
         # Results should be so clean at this stage that we do not need to be aggressive (97+) in the thresholding.
-        binarized = self.ACR_obj.binarize_image(dog.copy(), self.BINARIZATION_THRESHOLD[field_strength])
+        # 92% is pretty safe and accurate in most cases, but the 1.5T can yield more human like results with a slightly
+        # lesser percentile. I found that 91st percentile strikes an acceptable balance between surviving noise and
+        # keeping the dimmer spots in the signal population.
+        binarized = self.ACR_obj.binarize_image(dog.copy(), self.BINARIZATION_THRESHOLD.get(field_strength, 92))
 
         # Dilate the signal that is present.
         dilated = cv2.dilate(binarized, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
