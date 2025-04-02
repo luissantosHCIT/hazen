@@ -129,6 +129,10 @@ class ACRObjectDetectability(HazenTask):
         8: 2.0,
         9: 2.0,
     }
+    BINARIZATION_THRESHOLD = {
+        1.5: 91,
+        3.0: 92
+    }
     FIRST_SLICE_NUM = 8
 
     def __init__(self, **kwargs):
@@ -410,7 +414,7 @@ class ACRObjectDetectability(HazenTask):
 
         # Binarize the results
         # Results should be so clean at this stage that we do not need to be aggressive (97+) in the thresholding.
-        binarized = self.ACR_obj.binarize_image(dog.copy(), 92)
+        binarized = self.ACR_obj.binarize_image(dog.copy(), self.BINARIZATION_THRESHOLD[field_strength])
 
         # Dilate the signal that is present.
         dilated = cv2.dilate(binarized, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
