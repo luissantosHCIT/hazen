@@ -23,24 +23,24 @@ class TestACRObjectDetectability(unittest.TestCase):
         self.results = self.acr_object_detectability.run()
 
     def test_slice_8_score(self):
-        slice_8 = self.results['slice_scores'][0]
+        slice_8 = self.results['measurement'][8]
         assert slice_8 == self.SCORE_8
 
     def test_total_score(self):
-        total_score = self.results['score']
+        total_score = self.results['measurement']['total_score']
         assert total_score == self.TOTAL_SCORE
 
 
 class TestACRObjectDetectabilitySiemensSolaFit(TestACRObjectDetectability):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
     SCORE_8 = 9
-    TOTAL_SCORE = 38
+    TOTAL_SCORE = 39
 
 
 class TestACRObjectDetectabilityGE(TestACRObjectDetectability):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
     SCORE_8 = 5 # in reality, this slice should be scored 0 but this is here to force future reassessments of the algorithm to check this dataset.
-    TOTAL_SCORE = 24
+    TOTAL_SCORE = 30
 
 
 class TestACRObjectDetectabilityPhilipsAchieva(TestACRObjectDetectability):

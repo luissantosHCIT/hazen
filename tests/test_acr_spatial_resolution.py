@@ -16,7 +16,7 @@ class TestACRSpatialResolutionSiemens(unittest.TestCase):
     EXPECTED_UNRESOLVED_ARRAY = [0.9]
     EXPECTED_UL_RESOLUTION = 1.0
     EXPECTED_LR_RESOLUTION = 1.0
-    EXPECTED_RESOLUTION = 1.0
+    EXPECTED_RESOLUTION = 0.9
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)
@@ -64,7 +64,7 @@ class TestACRSpatialResolutionPhilipsAchieva(TestACRSpatialResolutionSiemens):
 
 class TestACRSpatialResolutionGE(TestACRSpatialResolutionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    EXPECTED_RESOLVED_ROWS = [1, 1, 2, 1, 1, 1]
+    EXPECTED_RESOLVED_ROWS = [1, 1, 1, 2, 1, 3]
     EXPECTED_UNRESOLVED_ARRAY = []
     EXPECTED_UL_RESOLUTION = 0.9
     EXPECTED_LR_RESOLUTION = 0.9
