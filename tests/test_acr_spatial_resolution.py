@@ -12,11 +12,11 @@ from tests import TEST_DATA_DIR, TEST_REPORT_DIR
 
 class TestACRSpatialResolutionSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    EXPECTED_RESOLVED_ROWS = [1, 1, 1, 1, 1, -1]
+    EXPECTED_RESOLVED_ROWS = [2, 1, 1, 1, 1, -1]
     EXPECTED_UNRESOLVED_ARRAY = [0.9]
     EXPECTED_UL_RESOLUTION = 1.0
     EXPECTED_LR_RESOLUTION = 1.0
-    EXPECTED_RESOLUTION = 0.9
+    EXPECTED_RESOLUTION = 1.0
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)

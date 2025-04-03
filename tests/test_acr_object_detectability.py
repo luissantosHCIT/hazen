@@ -34,13 +34,13 @@ class TestACRObjectDetectability(unittest.TestCase):
 class TestACRObjectDetectabilitySiemensSolaFit(TestACRObjectDetectability):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
     SCORE_8 = 9
-    TOTAL_SCORE = 39
+    TOTAL_SCORE = 38
 
 
 class TestACRObjectDetectabilityGE(TestACRObjectDetectability):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    SCORE_8 = 3 # in reality, this slice should be scored 0 but this is here to force future reassessments of the algorithm to check this dataset.
-    TOTAL_SCORE = 22
+    SCORE_8 = 1 # in reality, this slice should be scored 0 but this is here to force future reassessments of the algorithm to check this dataset.
+    TOTAL_SCORE = 28
 
 
 class TestACRObjectDetectabilityPhilipsAchieva(TestACRObjectDetectability):

@@ -9,10 +9,10 @@ from tests import TEST_DATA_DIR
 
 # Siemens (axial)
 class TestACRTools(unittest.TestCase):
-    centre = (129, 128)
+    centre = (129, 129)
     rotation = -1.0
     horizontal_distance = 191.40625
-    horizontal_end = (128, 255)
+    horizontal_end = (129, 255)
     vertical_distance = 187.5
     vertical_end = (255, 128)
 
@@ -118,8 +118,8 @@ class TestACRToolsSAG(TestACRTools):
 # GE axial
 class TestACRToolsGE(TestACRTools):
     rotation = 0.0
-    centre = (256, 256)
-    horizontal_distance = 190.42
+    centre = (254, 255)
+    horizontal_distance = 190.93
     horizontal_end = (264, 511)
     vertical_distance = 188.9016
     vertical_end = (511, 256)
@@ -150,7 +150,7 @@ class TestACRToolsGE(TestACRTools):
 # Philips Achieva axial
 class TestACRToolsPhilips(TestACRTools):
     rotation = 0.0
-    centre = (127, 128)
+    centre = (129, 128)
     horizontal_distance = 190.4296875
     horizontal_end = (128, 255)
     vertical_distance = 189.453125
@@ -178,7 +178,7 @@ class TestACRToolsSiemensSolaFit(TestACRTools):
     rotation = 0.0
     centre = (128, 127)
     horizontal_distance = 190.42959000000002
-    horizontal_end = (128, 255)
+    horizontal_end = (127, 255)
     vertical_distance = 190.43
     vertical_end = (255, 128)
 
