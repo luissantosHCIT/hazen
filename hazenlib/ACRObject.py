@@ -564,8 +564,8 @@ class ACRObject:
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
+        masked_data[~lower_mask] = dtmin
+        masked_data[~upper_mask] = dtmax
         masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
         return masked_data
 
@@ -604,8 +604,8 @@ class ACRObject:
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
+        masked_data[~lower_mask] = dtmin
+        masked_data[~upper_mask] = dtmax
         masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
         return masked_data
 
@@ -965,7 +965,7 @@ class ACRObject:
         Returns:
             np.ndarray: resampled image.
         """
-        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_CUBIC)
+        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_NEAREST)
 
     @staticmethod
     def zoom(data, level=1):
