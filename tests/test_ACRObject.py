@@ -47,82 +47,14 @@ class TestACRTools(unittest.TestCase):
         assert self.vertical_end == length_dict["Vertical End"]
 
 
-"""
-# Siemens transverse = axial
-class TestACRToolsTRA(TestACRTools):
-    centre = (136, 128)
-    rotation = 0.0
-    horizontal_distance = 189.0
-    horizontal_end = (128, 255)
-    vertical_distance = 191.0
-    vertical_end = (255, 136)
-
-    def setUp(self):
-        self.TRA_data = [
-            pydicom.read_file(
-                os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_TRA_ONE", f"{i}")
-            )
-            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_TRA_ONE"))
-        ]
-
-        self.ACR_object = ACRObject(self.TRA_data)
-        self.img1 = self.ACR_object.slice_stack[0].pixel_array
-        self.img7 = self.ACR_object.slice_stack[6].pixel_array
-
-
-# Siemens coronal
-class TestACRToolsCOR(TestACRTools):
-    centre = (128, 128)
-    rotation = 0.0
-    horizontal_distance = 190.0
-    horizontal_end = (128, 255)
-    vertical_distance = 191.0
-    vertical_end = (255, 126)
-
-    def setUp(self):
-        self.COR_data = [
-            pydicom.read_file(
-                os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_COR_ONE", f"{i}")
-            )
-            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_COR_ONE"))
-        ]
-
-        self.ACR_object = ACRObject(self.COR_data)
-        self.img1 = self.ACR_object.slice_stack[0].pixel_array
-        self.img7 = self.ACR_object.slice_stack[6].pixel_array
-
-
-# Siemens sagittal
-class TestACRToolsSAG(TestACRTools):
-    rotation = -90.0
-    centre = (130, 148)
-    horizontal_distance = 190.0
-    horizontal_end = (148, 255)
-    vertical_distance = 189.0
-    vertical_end = (255, 130)
-
-    def setUp(self):
-        self.SAG_data = [
-            pydicom.read_file(
-                os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_SAG_ONE", f"{i}")
-            )
-            for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "ACR_BODY_SAG_ONE"))
-        ]
-
-        self.ACR_object = ACRObject(self.SAG_data)
-        self.img1 = self.ACR_object.slice_stack[0].pixel_array
-        self.img7 = self.ACR_object.slice_stack[6].pixel_array
-"""
-
-
 # GE axial
 class TestACRToolsGE(TestACRTools):
     rotation = 0.0
     centre = (254, 255)
     horizontal_distance = 190.93
-    horizontal_end = (264, 511)
+    horizontal_end = (256, 511)
     vertical_distance = 188.9016
-    vertical_end = (511, 256)
+    vertical_end = (511, 255)
     test_point = (-60.98, -45.62)
 
     def setUp(self):
