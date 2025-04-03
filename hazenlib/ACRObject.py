@@ -557,16 +557,20 @@ class ACRObject:
             np.ma.MaskedArray: Windowed data
         """
         logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
-        adjusted_width = width - 1
-        half_width = adjusted_width / 2
-        lower_mask = data <= center - 0.5 - half_width
-        upper_mask = data > center - 0.5 + half_width
+        adjusted_width = abs(width - 1)
+        half_width = 0.5 - adjusted_width / 2
+        lower_bound = center - half_width
+        upper_bound = center + half_width
+        logger.info(f'Half Width: {half_width} Lower Window Bound: {lower_bound} Upper Window Bound: {upper_bound}')
+        logger.info(f'Min: {dtmin} Max: {dtmax}')
+        lower_mask = data <= lower_bound
+        upper_mask = data > upper_bound
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
         masked_data[~lower_mask] = dtmin
         masked_data[~upper_mask] = dtmax
-        masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+        masked_data[mid_mask] = ((masked_data[mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
         return masked_data
 
     @staticmethod
@@ -599,14 +603,18 @@ class ACRObject:
         """
         logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
         half_width = width / 2
-        lower_mask = data <= center - half_width
-        upper_mask = data > center + half_width
+        lower_bound = center - half_width
+        upper_bound = center - half_width
+        logger.info(f'Half Width: {half_width} Lower Window Bound: {lower_bound} Upper Window Bound: {upper_bound}')
+        logger.info(f'Min: {dtmin} Max: {dtmax}')
+        lower_mask = data <= lower_bound
+        upper_mask = data > upper_bound
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
         masked_data[~lower_mask] = dtmin
         masked_data[~upper_mask] = dtmax
-        masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+        masked_data[mid_mask] = ((masked_data[mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
         return masked_data
 
     @staticmethod
@@ -664,6 +672,8 @@ class ACRObject:
         half_width = width / 2
         upper_grey = center + half_width
         lower_grey = center - half_width
+        logger.info(f'Half Width: {half_width} Lower Window Bound: {lower_grey} Upper Window Bound: {upper_grey}')
+        logger.info(f'Min: {dtmin} Max: {dtmax}')
         upper_mask = data > upper_grey
         lower_mask = data <= lower_grey
         mid_mask = lower_mask & upper_mask
@@ -739,7 +749,7 @@ class ACRObject:
         search_data = data[data > 0]
         hist, bins = np.histogram(search_data, bins=256)
         mode = bins[np.argmax(hist)]
-        logger.info(f'Computed mode: {mode}')
+        logger.info(f'Histogram mode: {mode}')
         return mode
 
     @staticmethod
@@ -755,9 +765,12 @@ class ACRObject:
         """
         search_data = data[data > 0]
         hist, bins = np.histogram(search_data, bins=256)
-        logger.info(np.mean(bins))
+        logger.info(hist.shape)
+        logger.info(bins.shape)
+        logger.info(np.quantile(bins, 0.93))
+        #mean = np.quantile(bins, 0.3)
         mean = np.mean(bins)
-        logger.info(f'Computed mean: {mean}')
+        logger.info(f'Histogram mean: {mean}')
         return mean
 
     @staticmethod
@@ -775,8 +788,9 @@ class ACRObject:
         search_data = data[data > 0]
         hist, bins = np.histogram(search_data, bins=256)
         std = bins.max() - bins.min()
-        logger.info(f'Computed width: {std}')
+        logger.info(f'Histogram width: {std}')
         return std
+
 
     @staticmethod
     def compute_percentile(data, percentile):
@@ -965,7 +979,7 @@ class ACRObject:
         Returns:
             np.ndarray: resampled image.
         """
-        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_NEAREST)
+        return cv2.resize(data, dsize=None, fx=dx, fy=dy, interpolation=cv2.INTER_CUBIC)
 
     @staticmethod
     def zoom(data, level=1):
