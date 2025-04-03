@@ -87,10 +87,8 @@ class ACRSpatialResolution(HazenTask):
     """
 
     ROI_OFFSET = 23         #: 23mm separation between ROIs
-    BASE_UL_X_OFFSET = -16  #: -16mm from centroid for 1.1mm resolution array
-    BASE_UL_Y_OFFSET = 35   #: 35mm from centroid for 1.1mm resolution array
-    BASE_LR_X_OFFSET = -10  #: -9mm from centroid for 1.1mm resolution array
-    BASE_LR_Y_OFFSET = 42   #: 42mm from centroid for 1.1mm resolution array
+    BASE_X_OFFSET = -14  #: -16mm from centroid for 1.1mm resolution array
+    BASE_Y_OFFSET = 40   #: 35mm from centroid for 1.1mm resolution array
     DEFAULT_GROUP_SIZE = 2  #: If a dataset is a 1mm resolution, the crop roi is sized such that we can check a row's
                             # value by looking at pairs of rows in data
 
@@ -142,18 +140,17 @@ class ACRSpatialResolution(HazenTask):
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
 
-        #fig, axes = plt.subplots(3, 3)
         fig, axes = plt.subplot_mosaic(
             [
-                ['main', 'main', 'main'],
-                ['main', 'main', 'main'],
-                ['main', 'main', 'main'],
-                ['main', 'main', 'main'],
-                ['main', 'main', 'main'],
-                ['ul1', 'ul2', 'ul3'],
-                ['lr1', 'lr2', 'lr3'],
-                ['.', '.', '.'],
-                ['.', '.', '.']
+                ['main', 'main', 'main', 'main', 'main'],
+                ['main', 'main', 'main', 'main', 'main'],
+                ['main', 'main', 'main', 'main', 'main'],
+                ['main', 'main', 'main', 'main', 'main'],
+                ['main', 'main', 'main', 'main', 'main'],
+                ['.', '.', '.', '.', '.'],
+                ['.', 'ul1', 'ul2', 'ul3', '.'],
+                ['.', '.', '.', '.', '.'],
+                ['.', '.', '.', '.', '.']
             ],
             layout="constrained",
             per_subplot_kw={
@@ -182,26 +179,21 @@ class ACRSpatialResolution(HazenTask):
         axes['main'].axis("off")
         axes['main'].set_title("Centroid + ROI Placement")
 
+        roi_center = roi_coords[0]
+        axes['ul1'].annotate("UL", (-30, roi_center[1] / 2.5), xycoords='axes pixels', fontsize='large')
+        axes['ul1'].annotate("LR", (-30, roi_center[1] / 5), xycoords='axes pixels', fontsize='large')
+
         axes['ul1'].set_title("1.1mm")
-        ul_roi_center = roi_coords[0]
-        axes['ul1'].annotate("UL", (-30, ul_roi_center[1] / 4), xycoords='axes pixels', fontsize='large')
         axes['ul2'].set_title("1.0mm")
         axes['ul3'].set_title("0.9mm")
-        lr_roi_center = roi_coords[1]
-        axes['lr1'].annotate("LR", (-30, lr_roi_center[1] / 4), xycoords='axes pixels', fontsize='large')
 
-        for i in range(0, len(processed_rois), self.DEFAULT_GROUP_SIZE):
+        for i in range(len(processed_rois)):
             ul = processed_rois[i][1]
-            lr = processed_rois[i + 1][1]
-            indx = int(i / 2) + 1
+            indx = i + 1
             ul_name = f'ul{indx}'
-            lr_name = f'lr{indx}'
             axes[ul_name].imshow(ul, interpolation="none")
             axes[ul_name].axis("off")
             axes[ul_name].set_xlabel(ul_name.upper())
-            axes[lr_name].imshow(lr, interpolation="none")
-            axes[lr_name].axis("off")
-            axes[lr_name].set_xlabel(lr_name.upper())
 
         img_path = os.path.realpath(
             os.path.join(self.report_path, f"{self.img_desc(dcm)}.png")
@@ -294,7 +286,8 @@ class ACRSpatialResolution(HazenTask):
         # Windowing step
         non_zero = roi[roi > 0]
         center, window_width = self.ACR_obj.compute_center_and_width(non_zero)
-        leveled = self.ACR_obj.apply_window_center_width(roi, center, window_width, function='clip')
+        logger.info(f"Applying center {center} and width 0!")
+        leveled = self.ACR_obj.apply_window_center_width(roi, center, 0)
 
         # Cropping step
         crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
@@ -366,6 +359,9 @@ class ACRSpatialResolution(HazenTask):
                 return i + 1
         return -1
 
+    def get_rois(self, rescaled, width, height, center):
+        ...
+
     def get_spatially_resolved_rows(self, dcm):
         """Generates a series of ROIs centered around the hole arrays present in the ACR phantom.
         Preprocesses these rois and then attempts to detect hole array.
@@ -386,7 +382,7 @@ class ACRSpatialResolution(HazenTask):
         # Detect Phantom center.
         dx, dy = float(self.ACR_obj.dx), float(self.ACR_obj.dy)
         cxy, _ = self.ACR_obj.find_phantom_center(img, dx, dy)
-        width = int(np.round(14 / dx))
+        width = int(np.round(25 / dx))
 
         logger.info(f"Center           => {cxy}")
         logger.info(f"Pixel Resolution => {dx, dy}")
@@ -397,26 +393,21 @@ class ACRSpatialResolution(HazenTask):
         roi_coords = []
         for i in range(3):
             # Request UL ROI
-            x_off = (self.BASE_UL_X_OFFSET / dx) + i * self.ROI_OFFSET / dx
-            ul_x, ul_y = (int(cxy[0] + x_off), int(cxy[1] + self.BASE_UL_Y_OFFSET / dy))
-            logger.info(f"UL ROI Center for Array {i} => {ul_x, ul_y}")
-            task_args.append((rescaled, width, width, (ul_x, ul_y)))
-            roi_coords.append((ul_x, ul_y))
+            x_off = (self.BASE_X_OFFSET / dx) + i * self.ROI_OFFSET / dx
+            x, y = (int(cxy[0] + x_off), int(cxy[1] + self.BASE_Y_OFFSET / dy))
+            logger.info(f"ROI Center for Array {i} => {x, y}")
+            task_args.append((rescaled, width, width, (x, y)))
+            roi_coords.append((x, y))
 
-            # Request LR ROI
-            x_off = (self.BASE_LR_X_OFFSET / dx) + i * self.ROI_OFFSET / dx
-            lr_x, lr_y = (int(cxy[0] + x_off), int(cxy[1] + self.BASE_LR_Y_OFFSET / dy))
-            logger.info(f"LR ROI Center for Array {i} => {lr_x, lr_y}")
-            task_args.append((rescaled, width, width, (lr_x, lr_y)))
-            roi_coords.append((lr_x, lr_y))
         processed_rois = wait_on_parallel_results(self.get_processed_roi, task_args)
 
         # Detect resolved row/column in each ROI.
         group_size = int(np.round(self.DEFAULT_GROUP_SIZE / dx))
         task_args.clear()
-        for i in range(0, len(processed_rois), self.DEFAULT_GROUP_SIZE):
-            task_args.append((processed_rois[i][1], group_size, True))
-            task_args.append((processed_rois[i + 1][1], group_size, False))
+        for i in range(len(processed_rois)):
+            roi = processed_rois[i][1]
+            task_args.append((roi, group_size, True))
+            task_args.append((roi, group_size, False))
         detected_rows = wait_on_parallel_results(self.find_resolved_row, task_args)
 
         logger.info(f'Detected rows => {detected_rows}')
