@@ -546,6 +546,14 @@ class ACRObject:
             else if (x > c - 0.5 + (w-1) /2), then y = ymax
             else y = ((x - (c - 0.5)) / (w-1) + 0.5) * (ymax- ymin) + ymin
 
+        ..info::
+
+            #. Window Width (0028,1051) shall always be greater than or equal to 1.
+            #. When Window Width (0028,1051) is greater than 1, these Attributes select the range of input values that
+                are to be mapped to the full range of the displayed output.
+            #. When Window Width (0028,1051) is equal to 1, they specify a threshold below which input values will be
+                displayed as the minimum output value.
+
         Args:
             data (np.ndarray): pixel array containing the data to perform peak extraction on
             center (int): The desired Window Center setting.
@@ -556,8 +564,9 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
+        width = 1 if width <= 0 else width
         logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
-        adjusted_width = abs(width - 1)
+        adjusted_width = width - 1
         half_width = 0.5 - adjusted_width / 2
         lower_bound = center - half_width
         upper_bound = center + half_width
@@ -568,9 +577,13 @@ class ACRObject:
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[~lower_mask] = dtmin
-        masked_data[~upper_mask] = dtmax
-        masked_data[mid_mask] = ((masked_data[mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+        if len(masked_data[mid_mask]):
+            masked_data[~lower_mask] = dtmin
+            masked_data[~upper_mask] = dtmax
+            masked_data[mid_mask] = ((masked_data[mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+        else:
+            masked_data[~lower_mask] = dtmax
+            masked_data[~upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -583,6 +596,10 @@ class ACRObject:
             if (x <= c - w/2), then y = ymin
             else if (x > c + w/2), then y = ymax
             else y = ((x - c) / w + 0.5) * (ymax- ymin) + ymin
+
+        ..info::
+
+            #. Window Width (0028,1051) shall always be greater than 0
 
         This equation is similar to described in Radiopaedia
 
@@ -601,6 +618,7 @@ class ACRObject:
         Returns:
             np.ma.MaskedArray: Windowed data
         """
+        width = 1 if width <= 0 else width
         logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
         half_width = width / 2
         lower_bound = center - half_width
@@ -612,9 +630,13 @@ class ACRObject:
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[~lower_mask] = dtmin
-        masked_data[~upper_mask] = dtmax
-        masked_data[mid_mask] = ((masked_data[mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+        if len(masked_data[mid_mask]):
+            masked_data[~lower_mask] = dtmin
+            masked_data[~upper_mask] = dtmax
+            masked_data[mid_mask] = ((masked_data[mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+        else:
+            masked_data[~lower_mask] = dtmax
+            masked_data[~upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -679,9 +701,13 @@ class ACRObject:
         mid_mask = lower_mask & upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
-        masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
+        if len(masked_data[mid_mask]):
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
+            masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
+        else:
+            masked_data[~lower_mask] = dtmax
+            masked_data[~upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -765,11 +791,9 @@ class ACRObject:
         """
         search_data = data[data > 0]
         hist, bins = np.histogram(search_data, bins=256)
-        logger.info(hist.shape)
-        logger.info(bins.shape)
-        logger.info(np.quantile(bins, 0.93))
-        #mean = np.quantile(bins, 0.3)
-        mean = np.mean(bins)
+        edges = np.histogram_bin_edges(search_data, bins=256)
+        mean_bins = np.mean(np.vstack([edges[:-1], edges[1:]]), axis=0)
+        mean = np.quantile(mean_bins, 0.94, method='inverted_cdf', weights=hist)
         logger.info(f'Histogram mean: {mean}')
         return mean
 
@@ -843,6 +867,25 @@ class ACRObject:
         mask = data >= intensity if greater_than else data <= intensity
         data[mask] = fill
         return data
+
+    @staticmethod
+    def find_nearest_value(data, value):
+        """Does a search for the closest value to the one supplied.
+
+        Args:
+            data (np.ndarray|np.ma.MaskedArray): pixel array containing the data
+            value (float): pixel value to use in lookup
+
+        Returns:
+            data (np.ndarray|np.ma.MaskedArray): data reference.
+
+        """
+        logger.info(f"value {value}")
+        search_data = data.flatten() - value
+        candidate_data = search_data[search_data >= 0]
+        i = np.argwhere(search_data == candidate_data[0]).flatten().min()
+        logger.info(f"result {data[i]}")
+        return data[i]
 
     @staticmethod
     def filter_with_dog(data, sigma1=1, sigma2=2, gamma=1.0, iterations=1, ksize=(0, 0)):
