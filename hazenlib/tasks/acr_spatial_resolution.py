@@ -260,13 +260,8 @@ class ACRSpatialResolution(HazenTask):
         ___________________
 
             #. Place small ROI using offset from center.
-            #. Apply clip windowing method using ROI pixel population.
             #. Crop image at ROI.
-            #. Upsample image 3x.
-            #. Perform narrow sigma Gaussian denoising.
-            #. Perform Difference of Gaussians to drop most of the background and accentuate the main signal.
-            #. Binarize image using the 90th percentile as threshold.
-            #. Downsample image back to original dimensions. This step simplifies spot detection.
+            #. Apply linear windowing method using ROI pixel population.
             #. Normalize the image to 1 (makes each pixel Boolean compatible).
 
         Args:
@@ -280,36 +275,15 @@ class ACRSpatialResolution(HazenTask):
         """
         roi_x, roi_y = loc
 
-        roi = create_rectangular_roi_at(img, width, height, roi_x, roi_y)
-        roi[roi.mask] = 0
+        roi = self.ACR_obj.crop_image(img, roi_x, roi_y, width, height)
 
         # Windowing step
-        non_zero = roi[roi > 0]
-        center, window_width = self.ACR_obj.compute_center_and_width(non_zero)
+        center, window_width = self.ACR_obj.compute_center_and_width(roi)
         logger.info(f"Applying center {center} and width 0!")
         leveled = self.ACR_obj.apply_window_center_width(roi, center, 0)
 
-        # Cropping step
-        crop_img = self.ACR_obj.crop_image(leveled, roi_x, roi_y, width)
-
-        # Upsampling step
-        zoom_level = 4 # The ACR prescribes a zoom level of 2 to 4. Thus, a level of 3 can help create an odd grid
-        zoom = self.ACR_obj.zoom(crop_img, zoom_level)
-
-        # Denoising step
-        smoothed = self.ACR_obj.filter_with_gaussian(zoom, 0.5)
-
-        # Difference of Gaussians step
-        dog = self.ACR_obj.filter_with_dog(smoothed, 0.5 / self.ACR_obj.dx, 1 / self.ACR_obj.dx)
-
-        # Binarization step
-        binarized = self.ACR_obj.binarize_image(dog, 90)
-
-        # Downsampling step
-        downsampled = self.ACR_obj.zoom(binarized, 1 / zoom_level)  # Undo zoom to have nice single scan lines :)
-
         # Return denoised and normalized (0 to 1) results.
-        return smoothed, self.ACR_obj.normalize(downsampled, 1)
+        return leveled, self.ACR_obj.normalize(leveled, 1)
 
     def find_resolved_row(self, roi, grouping_size=2, ul=True):
         """Goes row by row and detects the number of intensity peaks present.
@@ -351,8 +325,13 @@ class ACRSpatialResolution(HazenTask):
         vals = np.trim_zeros(vals, 'f')
         vals = [np.max(vals[i:i + grouping_size]).astype(np.int_) for i in range(0, len(vals), grouping_size)]
         vals = np.trim_zeros(vals, 'b')
-        vals = vals[0:4]  # We should only have 4 rows; anything else is an artefact and cannot be relied on as true.
+        vals = vals[0:3]  # We should only have 4 rows; anything else is an artefact and cannot be relied on as true.
                           # If we have not resolved any rows within the first 4, this array is probably unresolvable.
+                          # Ignore the 4th row because we now keep the full array (ul + lr components) to avoid
+                          # interpolation artefacts. As a result, the 4th row contains spots for both the ul and lr
+                          # components which can make an array pass inadvertently. ALso, has the added benefit of
+                          # enforcing strictness here which can only be a good thing in terms of exceeding quality
+                          # controls prescribed by the ACR.
         logger.info(f'Row spots detected {vals}')
         for i in range(len(vals)):
             if vals[i] == 4:
@@ -387,6 +366,9 @@ class ACRSpatialResolution(HazenTask):
         logger.info(f"Center           => {cxy}")
         logger.info(f"Pixel Resolution => {dx, dy}")
         logger.info(f"ROI width        => {width}")
+
+        # Windowing step
+        blurred = self.ACR_obj.filter_with_gaussian(presentation)
 
         # Generate preprocessed ROIs
         task_args = []
