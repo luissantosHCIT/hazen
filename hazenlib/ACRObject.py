@@ -567,23 +567,23 @@ class ACRObject:
         width = 1 if width <= 0 else width
         logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
         adjusted_width = width - 1
-        half_width = 0.5 - adjusted_width / 2
-        lower_bound = center - half_width
-        upper_bound = center + half_width
+        half_width = adjusted_width / 2
+        lower_bound = center - 0.5 - half_width
+        upper_bound = center - 0.5 + half_width
         logger.info(f'Half Width: {half_width} Lower Window Bound: {lower_bound} Upper Window Bound: {upper_bound}')
         logger.info(f'Min: {dtmin} Max: {dtmax}')
         lower_mask = data <= lower_bound
         upper_mask = data > upper_bound
-        mid_mask = lower_mask & upper_mask
+        mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
         if len(masked_data[mid_mask]):
-            masked_data[~lower_mask] = dtmin
-            masked_data[~upper_mask] = dtmax
-            masked_data[mid_mask] = ((masked_data[mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
+            masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
         else:
-            masked_data[~lower_mask] = dtmax
-            masked_data[~upper_mask] = dtmin
+            masked_data[lower_mask] = dtmax
+            masked_data[upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -622,21 +622,21 @@ class ACRObject:
         logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
         half_width = width / 2
         lower_bound = center - half_width
-        upper_bound = center - half_width
+        upper_bound = center + half_width
         logger.info(f'Half Width: {half_width} Lower Window Bound: {lower_bound} Upper Window Bound: {upper_bound}')
         logger.info(f'Min: {dtmin} Max: {dtmax}')
         lower_mask = data <= lower_bound
         upper_mask = data > upper_bound
-        mid_mask = lower_mask & upper_mask
+        mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
         if len(masked_data[mid_mask]):
-            masked_data[~lower_mask] = dtmin
-            masked_data[~upper_mask] = dtmax
-            masked_data[mid_mask] = ((masked_data[mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
+            masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
         else:
-            masked_data[~lower_mask] = dtmax
-            masked_data[~upper_mask] = dtmin
+            masked_data[lower_mask] = dtmax
+            masked_data[upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -698,7 +698,7 @@ class ACRObject:
         logger.info(f'Min: {dtmin} Max: {dtmax}')
         upper_mask = data > upper_grey
         lower_mask = data <= lower_grey
-        mid_mask = lower_mask & upper_mask
+        mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
         if len(masked_data[mid_mask]):
@@ -706,8 +706,8 @@ class ACRObject:
             masked_data[upper_mask] = dtmax
             masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
         else:
-            masked_data[~lower_mask] = dtmax
-            masked_data[~upper_mask] = dtmin
+            masked_data[lower_mask] = dtmax
+            masked_data[upper_mask] = dtmin
         return masked_data
 
     @staticmethod
@@ -793,7 +793,7 @@ class ACRObject:
         hist, bins = np.histogram(search_data, bins=256)
         edges = np.histogram_bin_edges(search_data, bins=256)
         mean_bins = np.mean(np.vstack([edges[:-1], edges[1:]]), axis=0)
-        mean = np.quantile(mean_bins, 0.94, method='inverted_cdf', weights=hist)
+        mean = np.quantile(mean_bins, 0.945, method='inverted_cdf', weights=hist)
         logger.info(f'Histogram mean: {mean}')
         return mean
 
