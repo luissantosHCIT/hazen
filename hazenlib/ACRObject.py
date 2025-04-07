@@ -577,13 +577,13 @@ class ACRObject:
         mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        if len(masked_data[mid_mask]):
+        if len(masked_data[~mid_mask]):
             masked_data[lower_mask] = dtmin
             masked_data[upper_mask] = dtmax
             masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
         else:
-            masked_data[lower_mask] = dtmax
-            masked_data[upper_mask] = dtmin
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
         return masked_data
 
     @staticmethod
@@ -630,13 +630,13 @@ class ACRObject:
         mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        if len(masked_data[mid_mask]):
+        if len(masked_data[~mid_mask]):
             masked_data[lower_mask] = dtmin
             masked_data[upper_mask] = dtmax
             masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
         else:
-            masked_data[lower_mask] = dtmax
-            masked_data[upper_mask] = dtmin
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
         return masked_data
 
     @staticmethod
@@ -701,13 +701,13 @@ class ACRObject:
         mid_mask = lower_mask ^ upper_mask
         masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
         # Apply thresholds
-        if len(masked_data[mid_mask]):
+        if len(masked_data[~mid_mask]):
             masked_data[lower_mask] = dtmin
             masked_data[upper_mask] = dtmax
             masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
         else:
-            masked_data[lower_mask] = dtmax
-            masked_data[upper_mask] = dtmin
+            masked_data[lower_mask] = dtmin
+            masked_data[upper_mask] = dtmax
         return masked_data
 
     @staticmethod
