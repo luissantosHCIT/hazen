@@ -1,5 +1,6 @@
 """
 ACR Slice Thickness
+___________________
 
 Calculates the slice thickness for slice 1 of the ACR phantom.
 
@@ -11,6 +12,77 @@ Created by Yassine Azma
 yassine.azma@rmh.nhs.uk
 
 31/01/2022
+
+
+Reference
+_________
+
+`ACR Large Phantom Guidance PDF <https://accreditationsupport.acr.org/helpdesk/attachments/11093487417>`_
+
+Intro
+_____
+
+The slice thickness accuracy test assesses the accuracy with which a slice of specified thickness is achieved.
+The prescribed slice thickness is compared with the measured slice thickness.
+
+The ramps appear in a structure called the slice thickness insert. Figure 10 shows an image of slice 1 with
+the slice thickness insert and signal ramps identified. The two ramps are crossed: one has a negative slope
+and the other a positive slope with respect to the plane of slice 1. They are produced by cutting 1 mm wide
+slots in a block of plastic. The slots are open to the interior of the phantom and are filled with the same
+solution that fills the bulk of the phantom.
+
+The signal ramps have a slope of 10 to 1 with respect to the plane of slice 1, which is an angle of about 5.71°.
+Therefore, the signal ramps will appear in the image of slice 1 with a length that is 10 times the thickness of
+the slice. If the phantom is misaligned from right-left, one ramp will appear longer than the other. The
+crossed ramps allow for correction of the error introduced by right-left misalignment, and the slice thickness
+formula takes that into account.
+
+ACR Guidelines
+______________
+
+ACR Algorithm
++++++++++++++
+
+    #. Display slice 1, and magnify the image by a factor of 2 to 4, keeping the slice thickness insert fully
+        visible on the screen.
+    #. Adjust the display level so that the signal ramps are well visualized.
+        *. The ramp signal is much lower than that of surrounding water, so usually it will be necessary
+            to lower the display level substantially and narrow the window.
+    #. Place a rectangular ROI at the middle of each ramp as shown below in Figure 11.
+        *. Note the mean signal values for each of these two ROIs and then average those values.
+        *. The result is a number approximating the mean signal in the middle of the ramps.
+        *. An elliptical ROI may be used if a rectangular one is unavailable.
+    #. Lower the display level to half of the average ramp signal calculated in step 3.
+        *. Leave the display window set to its minimum.
+    #. Use the on-screen distance measurement tool to measure the lengths of the top and bottom ramps.
+        This is illustrated below in Figure 12. Record these lengths and compare to the action limits.
+
+ACR Scoring Rubric
+++++++++++++++++++
+
+
+Notes
+_____
+
+..note::
+
+    A failure of this test means that the scanner is producing slices of substantially different thickness from the
+    prescribed thickness. This problem will generally not occur in isolation since the scanner deficiencies that
+    can cause it may also cause other image problems. Therefore, the implications of a failure are not just that
+    the slices are too thick or thin, but can also result in poor image contrast and low SNR.
+
+..warning::
+
+    When making these measurements, **be careful to fully cover the widths of the ramp with the
+    ROIs** in the top-bottom direction, but not to allow the ROIs to stray outside the ramps into adjacent
+    high- or low-signal regions. If there is a large difference,(that is, more than 20%), between the signal
+    values obtained for the ROIs, it is often due to one or both of the ROIs including regions outside the
+    ramps.
+
+Documented by Luis M. Santos, M.D.
+luis.santos2@nih.gov
+
+
 """
 
 import os
@@ -24,6 +96,7 @@ import skimage.measure
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
+from hazenlib.logger import logger
 from hazenlib.utils import get_image_orientation
 
 
@@ -67,7 +140,7 @@ class ACRSliceThickness(HazenTask):
             result = self.get_slice_thickness(slice_thickness_dcm)
             results["measurement"] = {"slice width mm": round(result, 2)}
         except Exception as e:
-            print(
+            logger.error(
                 f"Could not calculate the slice thickness for {self.img_desc(slice_thickness_dcm)} because of : {e}"
             )
             traceback.print_exc(file=sys.stdout)
