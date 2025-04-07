@@ -621,6 +621,8 @@ def detect_centroid(img, dx, dy):
 
     We do the following preprocessing of the input to improve accuracy:
 
+        #. Blur image with a boxcard kernel to help the Laplacian accentuate the circular features.
+            It boosts the center accuracy by ~3% in the worst case I tested.
         #. Compute laplacian of the image to extract edges.
         #. Normalize to 8 bit.
         #. Attempt circle detection with HughesCircle Transform from OpenCV.
@@ -638,7 +640,8 @@ def detect_centroid(img, dx, dy):
         np.ndarray: Flattened array of tuples. tuples follow the form (x, y, r)
 
     """
-    img_grad = cv.Laplacian(img, cv.CV_64F)
+    img_smoothed = cv.blur(img, (5, 5))
+    img_grad = cv.Laplacian(img_smoothed, cv.CV_64F)
     img_grad_8u = cv.normalize(
         src=img_grad,
         dst=None,
@@ -692,6 +695,7 @@ def detect_centroid(img, dx, dy):
                 minRadius=80,
                 maxRadius=200,
             )
+    logger.info(f"{detected_circles}")
     return detected_circles.flatten()
 
 

@@ -130,8 +130,8 @@ class ACRObjectDetectability(HazenTask):
         9: 2.0,
     }
     BINARIZATION_THRESHOLD = {
-        1.5: 91,
-        3.0: 92
+        1.5: 97.8,
+        3.0: 97.5
     }
     FIRST_SLICE_NUM = 8
 
@@ -144,7 +144,7 @@ class ACRObjectDetectability(HazenTask):
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_binarization_sample = compute_radius_from_area(45, self.ACR_obj.dx)
         # Required pixel radius to produce ~15cm2 ROI
-        self.r_noise = compute_radius_from_area(30, self.ACR_obj.dx)
+        self.r_noise = compute_radius_from_area(45, self.ACR_obj.dx)
         # Required pixel radius to produce ~0.25cm2 ROI
         self.r_spot = compute_radius_from_area(0.25, self.ACR_obj.dx)
 
@@ -367,11 +367,11 @@ class ACRObjectDetectability(HazenTask):
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
 
         # Step 0, let's obtain a better center
-        (center_x, center_y) = self.get_img_center(img)
+        (center_x, center_y) = self.get_img_center(rescaled)
         logger.info(f'Phantom centroid set to {(center_x, center_y)} for slice {slice_id}!')
 
         # Now, we can ready the ROI on which to focus on extracting the signal
-        inner_roi = create_circular_roi_at(img, self.r_inner, center_x, center_y)
+        inner_roi = create_circular_roi_at(rescaled, self.r_inner, center_x, center_y)
         inner_roi[inner_roi.mask] = 0
 
         # Find noise sampling ROI
@@ -386,7 +386,7 @@ class ACRObjectDetectability(HazenTask):
         # We adjust the windowing here using the clip method which is a custom method. The clip method is not one
         # of the standard DICOM windowing methods. It is a modified linear exact method except we do not rescale the
         # window data. Rescaling the window data yields promotion of noise to the same rank as our signal.
-        contrasted = self.ACR_obj.apply_window_center_width(inner_roi, center, width * field_strength, function='clip')
+        contrasted = self.ACR_obj.apply_window_center_width(inner_roi, center, width * field_strength)
 
         # First, let do a light Gaussian pass to help remove some of the crazy noise and improve SNR.
         # Now, testing against the GE test dataset with a 512x512 matrix from a 1.5T scanner, my algorithm favors a sigma
@@ -398,7 +398,6 @@ class ACRObjectDetectability(HazenTask):
         # factor which adjusted by the pixel resolution will yield a sigma > 0.5 for the high resolution GE and
         # 0.3 for the lower (1mm) resolution acquisitions.
         resolution_factor = 1 / self.ACR_obj.dx
-        logger.info(f'??? {resolution_factor}')
         noise_removed = self.ACR_obj.filter_with_gaussian(contrasted, 0.7 * resolution_factor)
         noise_removed = np.ma.masked_array(noise_removed, mask=inner_roi.mask, fill_value=0)
 
