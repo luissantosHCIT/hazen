@@ -275,9 +275,11 @@ class ACRSliceThickness(HazenTask):
         Returns:
             float: measured slice thickness.
         """
-        img = dcm.pixel_array
-        cxy, _ = self.ACR_obj.find_phantom_center(img, self.ACR_obj.dx, self.ACR_obj.dy)
-        x_pts, y_pts = self.find_ramps(img, cxy)
+        #img = dcm.pixel_array
+        img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
+        cxy, _ = self.ACR_obj.find_phantom_center(rescaled, self.ACR_obj.dx, self.ACR_obj.dy)
+        blurred = self.ACR_obj.filter_with_gaussian(rescaled, 1)
+        x_pts, y_pts = self.find_ramps(blurred, cxy)
 
         interp_factor = 1 / 5
         interp_factor_dx = interp_factor * self.ACR_obj.dx
@@ -291,14 +293,14 @@ class ACRSliceThickness(HazenTask):
         for i, offset in enumerate(offsets):
             lines = [
                 skimage.measure.profile_line(
-                    img,
+                    blurred,
                     (offset + y_pts[0], x_pts[0]),
                     (offset + y_pts[0], x_pts[1]),
                     linewidth=2,
                     mode="constant",
                 ).flatten(),
                 skimage.measure.profile_line(
-                    img,
+                    blurred,
                     (offset + y_pts[1], x_pts[0]),
                     (offset + y_pts[1], x_pts[1]),
                     linewidth=2,
