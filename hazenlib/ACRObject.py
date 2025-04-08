@@ -562,7 +562,7 @@ class ACRObject:
             dtmax (int): The max value of datatype.
 
         Returns:
-            np.ma.MaskedArray: Windowed data
+            np.ndarray: Windowed data
         """
         width = 1 if width <= 0 else width
         logger.info(f'Applying Window Settings using the Linear method => Center: {center} Width: {width}')
@@ -575,12 +575,12 @@ class ACRObject:
         lower_mask = data <= lower_bound
         upper_mask = data > upper_bound
         mid_mask = lower_mask ^ upper_mask
-        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        data_copy = data.copy()
         # Apply thresholds
-        masked_data[~mid_mask] = ((masked_data[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
-        return masked_data
+        data_copy[~mid_mask] = ((data_copy[~mid_mask] - (center - 0.5)) / adjusted_width + 0.5) * (dtmax - dtmin) + dtmin
+        data_copy[lower_mask] = dtmin
+        data_copy[upper_mask] = dtmax
+        return data_copy
 
     @staticmethod
     def apply_linear_exact_window_center_width(data, center, width, dtmin=0, dtmax=255):
@@ -612,7 +612,7 @@ class ACRObject:
             dtmax (int): The max value of datatype.
 
         Returns:
-            np.ma.MaskedArray: Windowed data
+            np.ndarray: Windowed data
         """
         width = 1 if width <= 0 else width
         logger.info(f'Applying Window Settings using the Linear Exact method => Center: {center} Width: {width}')
@@ -624,12 +624,12 @@ class ACRObject:
         lower_mask = data <= lower_bound
         upper_mask = data > upper_bound
         mid_mask = lower_mask ^ upper_mask
-        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        data_copy = data.copy()
         # Apply thresholds
-        masked_data[~mid_mask] = ((masked_data[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
-        return masked_data
+        data_copy[~mid_mask] = ((data_copy[~mid_mask] - center) / width + 0.5) * (dtmax - dtmin) + dtmin
+        data_copy[lower_mask] = dtmin
+        data_copy[upper_mask] = dtmax
+        return data_copy
 
     @staticmethod
     def apply_sigmoid_window_center_width(data, center, width, dtmin=0, dtmax=255):
@@ -648,14 +648,14 @@ class ACRObject:
             dtmax (int): The max value of datatype.
 
         Returns:
-            np.ma.MaskedArray: Windowed data
+            np.ndarray: Windowed data
         """
         logger.info(f'Applying Window Settings using the Sigmoid method => Center: {center} Width: {width}')
         mid_mask = dtmin <= data <= dtmax
-        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        data_copy = data.copy()
         # Apply thresholds
-        masked_data[~mid_mask] = ((dtmax - dtmin) / (1 + np.exp((-4 * masked_data[~mid_mask] - center) / width))) + dtmin
-        return masked_data
+        data_copy[~mid_mask] = ((dtmax - dtmin) / (1 + np.exp((-4 * data_copy[~mid_mask] - center) / width))) + dtmin
+        return data_copy
 
     @staticmethod
     def apply_clip_window_center_width(data, center, width, dtmin=0, dtmax=255):
@@ -680,7 +680,7 @@ class ACRObject:
             dtmax (int): The max value of datatype.
 
         Returns:
-            np.ma.MaskedArray: Windowed data
+            np.ndarray: Windowed data
         """
         logger.info(f'Applying Window Settings using the Clip method => Center: {center} Width: {width}')
         half_width = width / 2
@@ -691,12 +691,12 @@ class ACRObject:
         upper_mask = data > upper_grey
         lower_mask = data <= lower_grey
         mid_mask = lower_mask ^ upper_mask
-        masked_data = np.ma.masked_array(data.copy(), mask=mid_mask, fill_value=0)
+        data_copy = data.copy()
         # Apply thresholds
-        masked_data[~mid_mask] = np.clip(masked_data[~mid_mask], lower_grey, upper_grey)
-        masked_data[lower_mask] = dtmin
-        masked_data[upper_mask] = dtmax
-        return masked_data
+        data_copy[~mid_mask] = np.clip(data_copy[~mid_mask], lower_grey, upper_grey)
+        data_copy[lower_mask] = dtmin
+        data_copy[upper_mask] = dtmax
+        return data_copy
 
     @staticmethod
     def apply_window_center_width(data, center, width, function='linear', dtype=None):
@@ -1045,7 +1045,7 @@ class ACRObject:
         return bin
 
     @staticmethod
-    def crop_image(img, x, y, width, height=None):
+    def crop_image(img, x, y, width, height=None, mode='center'):
         """Return a rectangular subset of a pixel array
 
         Args:
@@ -1054,18 +1054,30 @@ class ACRObject:
             y (int): y coordinate of centre
             width (int): width of box
             height (int, optional): height of box. Will be set to width if None, Defaults to None
+            mode (str, optional): defines what the x,y coordinates represent. Is it the center of the ROI or the corner
+                                (top, left), Defaults to center
 
         Returns:
             np.ndarray: subset of a pixel array with given width
         """
         height = width if height is None else height
-        crop_x, crop_y = ((
-            int(x - width / 2),
-            int(x + width / 2)),
-                          (
-            int(y - height / 2),
-            int(y + height / 2),
-        ))
+        if isinstance(mode, str) and mode == 'center':
+            crop_x, crop_y = ((
+                int(x - width / 2),
+                int(x + width / 2)),
+                              (
+                int(y - height / 2),
+                int(y + height / 2),
+            ))
+        else:
+            crop_x, crop_y = ((
+                int(x),
+                int(x + width)),
+                              (
+                int(y),
+                int(y + height),
+            ))
+
         crop_img = img[crop_y[0]:crop_y[1], crop_x[0]:crop_x[1]]
 
         return crop_img
