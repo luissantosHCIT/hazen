@@ -332,9 +332,6 @@ class ACRSpatialResolution(HazenTask):
                 return i + 1
         return -1
 
-    def get_rois(self, rescaled, width, height, center):
-        ...
-
     def get_spatially_resolved_rows(self, dcm):
         """Generates a series of ROIs centered around the hole arrays present in the ACR phantom.
         Preprocesses these rois and then attempts to detect hole array.
