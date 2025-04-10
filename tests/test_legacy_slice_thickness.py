@@ -4,7 +4,7 @@ import pathlib
 import pydicom
 
 from hazenlib.utils import get_dicom_files
-from hazenlib.tasks.acr_slice_thickness import ACRSliceThickness
+from hazenlib.tasks.legacy_slice_thickness import LegacySliceThickness
 from hazenlib.ACRObject import ACRObject
 from tests import TEST_DATA_DIR
 
@@ -18,7 +18,7 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)
 
-        self.acr_slice_thickness_task = ACRSliceThickness(input_data=input_files)
+        self.acr_slice_thickness_task = LegacySliceThickness(input_data=input_files)
 
         self.dcm = self.acr_slice_thickness_task.ACR_obj.slice_stack[0]
         self.centre, _ = self.acr_slice_thickness_task.ACR_obj.find_phantom_center(
