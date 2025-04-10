@@ -123,6 +123,7 @@ class ACRSliceThickness(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
+        self.SAMPLING_LINE_WIDTH = 4 / self.ACR_obj.dx  # How many pixel lines to use in the sampling during ramp line profiling.
         self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx        # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
         self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx        # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
         self.INSERT_ROI_HEIGHT = 9 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
@@ -160,6 +161,8 @@ class ACRSliceThickness(HazenTask):
         try:
             thickness_results = self.get_slice_thickness(slice_thickness_dcm)
             results["measurement"] = {"slice width mm": round(thickness_results['thickness'], 2)}
+            results["ramps"] = thickness_results["ramps"]
+            logger.info(results["ramps"])
         except Exception as e:
             logger.error(
                 f"Could not calculate the slice thickness for {self.img_desc(slice_thickness_dcm)} because of : {e}"
@@ -362,7 +365,7 @@ class ACRSliceThickness(HazenTask):
             ramp,
             (0, 0),
             (0, ramp.shape[1]),
-            linewidth=4,
+            linewidth=int(np.round(self.SAMPLING_LINE_WIDTH)),
             reduce_func=np.mean,
             mode="constant"
         )
@@ -373,8 +376,8 @@ class ACRSliceThickness(HazenTask):
         left_point = np.min(peaks)
         right_point = np.max(peaks)
         length = right_point - left_point
-        cx = left_point + length / 2
-        return (cx, ramp.shape[0] / 2), length
+        cx = float(left_point + length / 2)
+        return (cx, float(ramp.shape[0] / 2)), float(length)
 
     def compute_thickness(self, top_width, bottom_width):
         """ Given the top ramp's width and the bottom ramp's width, compute the slice thickness in units of mm.
@@ -407,7 +410,13 @@ class ACRSliceThickness(HazenTask):
             dcm (pydicom.Dataset): DICOM image object.
 
         Returns:
-            float: measured slice thickness.
+            dict: Dictionary of the form.
+                {
+                    "rois": <dict of np.ndarray>,
+                    "ramps": <dict>,
+                    "thickness": <float>,
+                    "img": <np.ndarray>
+                }
         """
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
         cxy, _ = self.ACR_obj.find_phantom_center(rescaled, self.ACR_obj.dx, self.ACR_obj.dy)

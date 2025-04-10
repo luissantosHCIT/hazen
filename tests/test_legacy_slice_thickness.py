@@ -13,7 +13,7 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
     x_pts = [71, 181]
     y_pts = [132, 126]
-    dz = 4.91
+    dz = 3.72
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)
@@ -52,4 +52,4 @@ class TestACRSliceThicknessGE(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
     x_pts = [146, 356]
     y_pts = [262, 250]
-    dz = 5.02
+    dz = 5.01
