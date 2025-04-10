@@ -68,16 +68,10 @@ import sys
 import traceback
 import numpy as np
 
-import cv2
-import scipy
-import skimage.morphology
-import skimage.measure
-from matplotlib.image import NonUniformImage
-
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
-from hazenlib.utils import create_rectangular_roi_at, debug_image_sample, wait_on_parallel_results
+from hazenlib.utils import wait_on_parallel_results
 
 
 class ACRSpatialResolution(HazenTask):
@@ -87,10 +81,10 @@ class ACRSpatialResolution(HazenTask):
     """
 
     ROI_OFFSET = 23         #: 23mm separation between ROIs
-    BASE_X_OFFSET = -14  #: -16mm from centroid for 1.1mm resolution array
-    BASE_Y_OFFSET = 40   #: 35mm from centroid for 1.1mm resolution array
+    BASE_X_OFFSET = -14     #: -14mm from centroid for 1.1mm resolution array
+    BASE_Y_OFFSET = 40      #: 40mm from centroid for 1.1mm resolution array
     DEFAULT_GROUP_SIZE = 2  #: If a dataset is a 1mm resolution, the crop roi is sized such that we can check a row's
-                            # value by looking at pairs of rows in data
+                            #: value by looking at pairs of rows in data
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -125,7 +119,7 @@ class ACRSpatialResolution(HazenTask):
                 "rows": hole_arrays
             }
         except Exception as e:
-            print(
+            logger.error(
                 f"Could not calculate the spatial resolution for {self.img_desc(dcm)} because of : {e}"
             )
             traceback.print_exc(file=sys.stdout)
@@ -337,9 +331,6 @@ class ACRSpatialResolution(HazenTask):
             if vals[i] == 4:
                 return i + 1
         return -1
-
-    def get_rois(self, rescaled, width, height, center):
-        ...
 
     def get_spatially_resolved_rows(self, dcm):
         """Generates a series of ROIs centered around the hole arrays present in the ACR phantom.

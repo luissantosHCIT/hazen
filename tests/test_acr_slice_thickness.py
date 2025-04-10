@@ -11,9 +11,8 @@ from tests import TEST_DATA_DIR
 
 class TestACRSliceThicknessSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    x_pts = [71, 181]
-    y_pts = [132, 126]
-    dz = 4.91
+    centers = [(46.0, 2.0), (46.5, 2.0)]
+    dz = 5.8
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)
@@ -24,21 +23,11 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
         self.centre, _ = self.acr_slice_thickness_task.ACR_obj.find_phantom_center(
             self.dcm.pixel_array, self.dcm.PixelSpacing[0], self.dcm.PixelSpacing[1]
         )
-
-    def test_ramp_find(self):
-        x_pts, y_pts = self.acr_slice_thickness_task.find_ramps(
-            self.dcm.pixel_array, self.centre
-        )
-        print(f'Slice Thickness ramp x_pts => {x_pts}')
-        print(f'Slice Thickness ramp y_pts => {y_pts}')
-
-        assert (x_pts == self.x_pts).all() == True
-
-        assert (y_pts == self.y_pts).all() == True
+        self.results = self.acr_slice_thickness_task.get_slice_thickness(self.dcm)
 
     def test_slice_thickness(self):
         slice_thickness_val = round(
-            self.acr_slice_thickness_task.get_slice_thickness(self.dcm), 2
+            self.results['thickness'], 2
         )
 
         print("\ntest_slice_thickness.py::TestSliceThickness::test_slice_thickness")
@@ -47,9 +36,23 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
 
         assert slice_thickness_val == self.dz
 
+    def test_ramp_slot_relative_centers(self):
+        centers = [self.results['ramps']['top']['center'], self.results['ramps']['bottom']['center']]
 
-class TestACRSliceThicknessGE(TestACRSliceThicknessSiemens):
-    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
-    x_pts = [146, 356]
-    y_pts = [262, 250]
-    dz = 5.02
+        print("\ntest_slice_thickness.py::TestSliceThickness::test_ramp_slot_relative_centers")
+        print("new_release_value:", centers)
+        print("fixed_value:", self.centers)
+
+        assert centers == self.centers
+
+
+class TestACRSliceThicknessPhilipsAchieva(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
+    centers = [(47.5, 2.0), (40.0, 2.0)]
+    dz = 4.9
+
+
+class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
+    centers = [(42.0, 2.0), (47.0, 2.0)]
+    dz = 4.4
