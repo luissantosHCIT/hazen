@@ -162,7 +162,6 @@ class ACRSliceThickness(HazenTask):
             thickness_results = self.get_slice_thickness(slice_thickness_dcm)
             results["measurement"] = {"slice width mm": round(thickness_results['thickness'], 2)}
             results["ramps"] = thickness_results["ramps"]
-            logger.info(results["ramps"])
         except Exception as e:
             logger.error(
                 f"Could not calculate the slice thickness for {self.img_desc(slice_thickness_dcm)} because of : {e}"
