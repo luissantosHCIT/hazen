@@ -2,18 +2,6 @@
 ACR Slice Thickness
 ___________________
 
-Calculates the slice thickness for slice 1 of the ACR phantom.
-
-The ramps located in the middle of the phantom are located and line profiles are drawn through them. The full-width
-half-maximum (FWHM) of each ramp is determined to be their length. Using the formula described in the ACR guidance, the
-slice thickness is then calculated.
-
-Created by Yassine Azma
-yassine.azma@rmh.nhs.uk
-
-31/01/2022
-
-
 Reference
 _________
 
@@ -57,8 +45,35 @@ ACR Algorithm
     #. Use the on-screen distance measurement tool to measure the lengths of the top and bottom ramps.
         This is illustrated below in Figure 12. Record these lengths and compare to the action limits.
 
+Our Approximation
++++++++++++++++++
+
+    #. Find the phantom center.
+    #. Zoom input x4.
+    #. Crop insert around initial center.
+    #. Apply Window Width and Window Level based on cropped region.
+    #. Identify the Y coordinates by sampling a line profile at the sample crop center and finding highest 2 peaks.
+    #. Identify the X coordinates by sampling line profiles in the horizontal direction going through the Y points.
+    #. Place rectangular ROIs at those centers with a fixed width.
+    #. Apply WL based on ROI averages.
+    #. Identify widths.
+    #. Use ACR formula for results.
+
 ACR Scoring Rubric
 ++++++++++++++++++
+
+The slice thickness is calculated using the following formula:
+
+    Slice thickness = 0.2 x (top x bottom)/(top + bottom)
+
+In the formula above, the `top` and `bottom` are the measured lengths of the top and bottom signal ramps.
+
+**Note:** 0.2 is a unitless factor that corrects for rotation of the phantom about the vertical (y) axis.
+
+For example, if the top signal ramp were 59.5mm long and the bottom ramp were 47.2mm long, then the
+calculated slice thickness would be:
+
+    Slice thickness = 0.2 x (59.5mm x 47.2mm)/(59.5mm + 47.2mm) = 5.26 mm.
 
 
 Notes
@@ -97,7 +112,7 @@ import skimage.measure
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
-from hazenlib.utils import get_image_orientation
+from hazenlib.utils import get_image_orientation, debug_image_sample
 
 
 
@@ -108,6 +123,12 @@ class ACRSliceThickness(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
+        self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx        # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
+        self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx        # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
+        self.INSERT_ROI_HEIGHT = 9 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
+        self.INSERT_ROI_WIDTH = 90 / self.ACR_obj.dx    # Allow enough space to capture the slots which might be R-L offsetted.
+        self.CROPPED_ROI_WIDTH = 90 / self.ACR_obj.dx   # Allow enough space to capture the slots which might be R-L offsetted.
+        self.CROPPED_ROI_HEIGHT = 20 / self.ACR_obj.dx  # Capture slots plus some surrounding areas to help visualization in report.
 
     def run(self) -> dict:
         """Main function for performing slice width measurement
@@ -137,8 +158,8 @@ class ACRSliceThickness(HazenTask):
         results["file"] = self.img_desc(slice_thickness_dcm)
 
         try:
-            result = self.get_slice_thickness(slice_thickness_dcm)
-            results["measurement"] = {"slice width mm": round(result, 2)}
+            thickness_results = self.get_slice_thickness(slice_thickness_dcm)
+            results["measurement"] = {"slice width mm": round(thickness_results['thickness'], 2)}
         except Exception as e:
             logger.error(
                 f"Could not calculate the slice thickness for {self.img_desc(slice_thickness_dcm)} because of : {e}"
@@ -151,119 +172,153 @@ class ACRSliceThickness(HazenTask):
 
         return results
 
-    def find_ramps(self, img, centre):
-        """Find ramps in the pixel array and return the co-ordinates of their location.
+    def write_report(self, dcm, center, results):
+        import matplotlib.pyplot as plt
 
-        Args:
-            img (np.ndarray): dcm.pixel_array
-            centre (list): x,y coordinates of the phantom centre
-
-        Returns:
-            tuple: x and y coordinates of ramp.
-        """
-        # X
-        investigate_region = int(np.ceil(5.5 / self.ACR_obj.dy).item())
-
-        if np.mod(investigate_region, 2) == 0:
-            investigate_region = investigate_region + 1
-
-        # Line profiles around the central row
-        invest_x = [
-            skimage.measure.profile_line(
-                img, (centre[1] + k, 1), (centre[1] + k, img.shape[1]), mode="constant"
-            )
-            for k in range(investigate_region)
-        ]
-
-        invest_x = np.array(invest_x).T
-        mean_x_profile = np.mean(invest_x, 1)
-        abs_diff_x_profile = np.absolute(np.diff(mean_x_profile))
-
-        # find the points corresponding to the transition between:
-        # [0] - background and the hyperintense phantom
-        # [1] - hyperintense phantom and hypointense region with ramps
-        # [2] - hypointense region with ramps and hyperintense phantom
-        # [3] - hyperintense phantom and background
-
-        x_peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_diff_x_profile, 4)
-        x_locs = np.sort(x_peaks) - 1
-
-        width_pts = [x_locs[1], x_locs[2]]
-        width = np.max(width_pts) - np.min(width_pts)
-
-        # take rough estimate of x points for later line profiles
-        x = np.round([np.min(width_pts) + 0.2 * width, np.max(width_pts) - 0.2 * width])
-
-        # Y
-        c = skimage.measure.profile_line(
-            img,
-            (centre[1] - 2 * investigate_region, centre[0]),
-            (centre[1] + 2 * investigate_region, centre[0]),
-            mode="constant",
-        ).flatten()
-
-        abs_diff_y_profile = np.absolute(np.diff(c))
-
-        y_peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_diff_y_profile, 2)
-        y_locs = centre[1] - 2 * investigate_region + 1 + y_peaks
-        height = np.max(y_locs) - np.min(y_locs)
-
-        y = np.round([np.max(y_locs) - 0.25 * height, np.min(y_locs) + 0.25 * height])
-
-        return x, y
-
-    def FWHM(self, data):
-        """Calculate full width at half maximum of the line profile.
-
-        Args:
-            data (np.ndarray): slice profile curve.
-
-        Returns:
-            tuple: co-ordinates of the half-maximum points on the line profile.
-        """
-        baseline = np.min(data)
-        data -= baseline
-        # TODO create separate variable so that data value isn't being overwritten
-        half_max = np.max(data) * 0.5
-
-        # Naive attempt
-        half_max_crossing_indices = np.argwhere(
-            np.diff(np.sign(data - half_max))
-        ).flatten()
-
-        # Interpolation
-        def simple_interp(x_start, ydata):
-            """Simple interpolation - obtaining more accurate x co-ordinates.
-
-            Args:
-                x_start (int or float): x coordinate of the half maximum.
-                ydata (np.ndarray): y coordinates.
-
-            Returns:
-                float: true x coordinate of the half maximum.
-            """
-            x_points = np.arange(x_start - 5, x_start + 6)
-            # Check if expected x_pts (indices) will be out of range ( >= len(ydata))
-            inrange = np.where(x_points == len(ydata))[0]
-            if np.size(inrange) > 0:
-                # locate index of where ydata ends within x_pts
-                # crop x_pts until len(ydata)
-                x_pts = x_points[: inrange.flatten()[0]]
-            else:
-                x_pts = x_points
-
-            y_pts = ydata[x_pts]
-
-            grad = (y_pts[-1] - y_pts[0]) / (x_pts[-1] - x_pts[0])
-
-            x_true = x_start + (half_max - ydata[x_start]) / grad
-
-            return x_true
-
-        FWHM_pts = simple_interp(half_max_crossing_indices[0], data), simple_interp(
-            half_max_crossing_indices[-1], data
+        (center_x, center_y) = center
+        fig, axes = plt.subplot_mosaic(
+            [
+                ['.', '.', '.', '.', '.', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', 'main', 'main', 'main', 'main', '.'],
+                ['.', '.', '.', '.', '.', '.'],
+                ['.','insert', 'insert', 'insert', 'insert', '.'],
+                ['.','insert', 'insert', 'insert', 'insert', '.'],
+                ['.','top', 'top', 'top', 'top', '.'],
+                ['.','top', 'top', 'top', 'top', '.'],
+                ['.','bottom', 'bottom', 'bottom', 'bottom', '.'],
+                ['.','bottom', 'bottom', 'bottom', 'bottom', '.'],
+            ],
+            layout="constrained",
+            per_subplot_kw={
+                'main': {
+                    'xbound': (0, 750),
+                    'ybound': (0, 500)
+                }
+            }
         )
-        return FWHM_pts
+        fig.set_size_inches(8, 8)
+        #fig.tight_layout(pad=4)
+
+        # Centroid
+        axes['main'].imshow(results['img'], cmap='viridis')
+        axes['main'].scatter(center_x, center_y, c="red")
+        axes['main'].axis("off")
+        axes['main'].set_title("Window Leveled + Centroid Location")
+
+        # Centroid
+        axes['insert'].imshow(results['rois']['insert'], cmap='viridis')
+        axes['insert'].axis("off")
+        axes['insert'].set_title("Insert")
+
+        # Top Ramp
+        top_center = results['ramps']['top']['center']
+        top_width = results['ramps']['top']['width']
+        top_half_width = top_width / 2
+        axes['top'].imshow(results['rois']['top'], cmap='viridis')
+        axes['top'].scatter(*top_center, c="blue")
+        axes['top'].plot(
+            [top_center[0] - top_half_width, top_center[0] + top_half_width],
+            [top_center[1], top_center[1]],
+            "b-"
+        )
+        axes['top'].axis("off")
+        axes['top'].set_title("Top Ramp")
+
+        # Bottom Ramp
+        bottom_center = results['ramps']['bottom']['center']
+        bottom_width = results['ramps']['bottom']['width']
+        bottom_half_width = bottom_width / 2
+        axes['bottom'].imshow(results['rois']['bottom'], cmap='viridis')
+        axes['bottom'].scatter(*bottom_center, c="red")
+        axes['bottom'].plot(
+            [bottom_center[0] - bottom_half_width, bottom_center[0] + bottom_half_width],
+            [bottom_center[1], bottom_center[1]],
+            "r-"
+        )
+        axes['bottom'].axis("off")
+        axes['bottom'].set_title("Bottom Ramp")
+
+        img_path = os.path.realpath(
+            os.path.join(self.report_path, f"{self.img_desc(dcm)}_slice_thickness.png")
+        )
+        fig.savefig(img_path)
+        return img_path
+
+    def find_insert(self, img, centre):
+        interest_region = self.ACR_obj.crop_image(img, centre[0],
+                                                centre[1],
+                                                self.CROPPED_ROI_WIDTH,
+                                                self.CROPPED_ROI_HEIGHT)
+        insert_region = self.ACR_obj.crop_image(img, centre[0],
+                                                centre[1],
+                                                self.INSERT_ROI_WIDTH,
+                                                self.INSERT_ROI_HEIGHT)
+        level, width = self.ACR_obj.compute_center_and_width(insert_region)
+        half_level = level / 2
+        return (self.ACR_obj.apply_window_center_width(interest_region, half_level, 0),
+                self.ACR_obj.apply_window_center_width(insert_region, half_level, 0))
+
+    def find_ramps(self, img, centre):
+        general_roi, insert_roi = self.find_insert(img, centre)
+
+        top_roi_leveled, bottom_roi_leveled = self.find_ramp_regions(insert_roi)
+
+        top_c, top_width = self.find_ramp_center_width(top_roi_leveled)
+
+        bottom_c, bottom_width = self.find_ramp_center_width(bottom_roi_leveled)
+
+
+        return {
+            'rois': {
+                'insert': general_roi,
+                'top': top_roi_leveled,
+                'bottom': bottom_roi_leveled
+            },
+            'ramps': {
+                'top': {
+                    'center': top_c,
+                    'width': top_width,
+                },
+                'bottom': {
+                    'center': bottom_c,
+                    'width': bottom_width,
+                }
+            }
+        }
+
+    def find_ramp_regions(self, leveled):
+        center_y = leveled.shape[0] / 2
+        top_roi_sample = self.ACR_obj.crop_image(leveled, 0, 0, leveled.shape[1], self.RAMP_HEIGHT, mode=None)
+        bottom_roi_sample = self.ACR_obj.crop_image(leveled, 0, abs(center_y + self.RAMP_Y_OFFSET), leveled.shape[1], self.RAMP_HEIGHT, mode=None)
+        return top_roi_sample, bottom_roi_sample
+
+    def find_ramp_center_width(self, ramp):
+        profile = skimage.measure.profile_line(
+            ramp,
+            (0, 0),
+            (0, ramp.shape[1]),
+            linewidth=int(np.round(ramp.shape[1])),
+            reduce_func=np.mean,
+            mode="constant"
+        )
+        x_diff = np.diff(profile)
+        abs_x_diff_profile = np.absolute(x_diff)
+
+        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 10)
+        left_point = np.min(peaks)
+        right_point = np.max(peaks)
+        length = right_point - left_point
+        cx = left_point + length / 2
+        return (cx, ramp.shape[0] / 2), length
+
+    def compute_thickness(self, top_width, bottom_width):
+        return 0.2 * (top_width * bottom_width) / (top_width + bottom_width)
 
     def get_slice_thickness(self, dcm):
         """Measure slice thickness. \n
@@ -275,143 +330,23 @@ class ACRSliceThickness(HazenTask):
         Returns:
             float: measured slice thickness.
         """
-        #img = dcm.pixel_array
         img, rescaled, presentation = self.ACR_obj.get_presentation_pixels(dcm)
         cxy, _ = self.ACR_obj.find_phantom_center(rescaled, self.ACR_obj.dx, self.ACR_obj.dy)
-        blurred = self.ACR_obj.filter_with_gaussian(rescaled, 1)
-        x_pts, y_pts = self.find_ramps(blurred, cxy)
 
-        interp_factor = 1 / 5
-        interp_factor_dx = interp_factor * self.ACR_obj.dx
-        sample = np.arange(1, x_pts[1] - x_pts[0] + 2)
-        new_sample = np.arange(1, x_pts[1] - x_pts[0] + interp_factor, interp_factor)
-        offsets = np.arange(-3, 4)
-        ramp_length = np.zeros((2, 7))
+        ramps = self.find_ramps(rescaled, cxy)
 
-        line_store = []
-        fwhm_store = []
-        for i, offset in enumerate(offsets):
-            lines = [
-                skimage.measure.profile_line(
-                    blurred,
-                    (offset + y_pts[0], x_pts[0]),
-                    (offset + y_pts[0], x_pts[1]),
-                    linewidth=2,
-                    mode="constant",
-                ).flatten(),
-                skimage.measure.profile_line(
-                    blurred,
-                    (offset + y_pts[1], x_pts[0]),
-                    (offset + y_pts[1], x_pts[1]),
-                    linewidth=2,
-                    mode="constant",
-                ).flatten(),
-            ]
+        # Per the ACR formula. Slice thickness = 0.2 x (top x bottom)/(top + bottom)
+        top_width = ramps['ramps']['top']['width']
+        bottom_width = ramps['ramps']['top']['width']
+        thickness = self.compute_thickness(top_width, bottom_width)
 
-            interp_lines = [
-                scipy.interpolate.interp1d(sample, line)(new_sample) for line in lines
-            ]
-            fwhm = [self.FWHM(interp_line) for interp_line in interp_lines]
-            ramp_length[0, i] = interp_factor_dx * np.diff(fwhm[0])
-            ramp_length[1, i] = interp_factor_dx * np.diff(fwhm[1])
-
-            line_store.append(interp_lines)
-            fwhm_store.append(fwhm)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            dz = 0.2 * (np.prod(ramp_length, axis=0)) / np.sum(ramp_length, axis=0)
-
-        dz = dz[~np.isnan(dz)]
-        # TODO check this - if it's taking the value closest to the DICOM slice thickness this is potentially not accurate?
-        z_ind = np.argmin(np.abs(dcm.SliceThickness - dz))
-
-        slice_thickness = dz[z_ind]
+        results = {
+            **ramps,
+            'thickness': thickness,
+            'img': rescaled,
+        }
 
         if self.report:
-            import matplotlib.pyplot as plt
+            self.write_report(dcm, cxy, results)
 
-            fig, axes = plt.subplots(4, 1)
-            fig.set_size_inches(8, 24)
-            fig.tight_layout(pad=4)
-
-            x_ramp = new_sample * self.ACR_obj.dx
-            x_extent = np.max(x_ramp)
-            y_ramp = line_store[z_ind][1]
-            y_extent = np.max(y_ramp)
-            max_loc = np.argmax(y_ramp) * interp_factor_dx
-
-            axes[0].imshow(img)
-            axes[0].scatter(cxy[0], cxy[1], c="red")
-            axes[0].axis("off")
-            axes[0].set_title("Centroid Location")
-
-            axes[1].imshow(img)
-            axes[1].plot(
-                [x_pts[0], x_pts[1]], offsets[z_ind] + [y_pts[0], y_pts[0]], "b-"
-            )
-            axes[1].plot(
-                [x_pts[0], x_pts[1]], offsets[z_ind] + [y_pts[1], y_pts[1]], "r-"
-            )
-            axes[1].axis("off")
-            axes[1].set_title("Line Profiles")
-
-            xmin = fwhm_store[z_ind][1][0] * interp_factor_dx / x_extent
-            xmax = fwhm_store[z_ind][1][1] * interp_factor_dx / x_extent
-
-            axes[2].plot(
-                x_ramp,
-                y_ramp,
-                "r",
-                label=f"FWHM={np.round(ramp_length[1][z_ind], 2)}mm",
-            )
-            axes[2].axhline(
-                0.5 * y_extent, linestyle="dashdot", color="k", xmin=xmin, xmax=xmax
-            )
-            axes[2].axvline(
-                max_loc, linestyle="dashdot", color="k", ymin=0, ymax=10 / 11
-            )
-
-            axes[2].set_xlabel("Relative Position (mm)")
-            axes[2].set_xlim([0, x_extent])
-            axes[2].set_ylim([0, y_extent * 1.1])
-            axes[2].set_title("Upper Ramp")
-            axes[2].grid()
-            axes[2].legend(loc="best")
-
-            xmin = fwhm_store[z_ind][0][0] * interp_factor_dx / x_extent
-            xmax = fwhm_store[z_ind][0][1] * interp_factor_dx / x_extent
-            x_ramp = new_sample * self.ACR_obj.dx
-            x_extent = np.max(x_ramp)
-            y_ramp = line_store[z_ind][0]
-            y_extent = np.max(y_ramp)
-            max_loc = np.argmax(y_ramp) * interp_factor_dx
-
-            axes[3].plot(
-                x_ramp,
-                y_ramp,
-                "b",
-                label=f"FWHM={np.round(ramp_length[0][z_ind], 2)}mm",
-            )
-            axes[3].axhline(
-                0.5 * y_extent, xmin=xmin, xmax=xmax, linestyle="dashdot", color="k"
-            )
-            axes[3].axvline(
-                max_loc, ymin=0, ymax=10 / 11, linestyle="dashdot", color="k"
-            )
-
-            axes[3].set_xlabel("Relative Position (mm)")
-            axes[3].set_xlim([0, x_extent])
-            axes[3].set_ylim([0, y_extent * 1.1])
-            axes[3].set_title("Lower Ramp")
-            axes[3].grid()
-            axes[3].legend(loc="best")
-
-            img_path = os.path.realpath(
-                os.path.join(
-                    self.report_path, f"{self.img_desc(dcm)}_slice_thickness.png"
-                )
-            )
-            fig.savefig(img_path)
-            self.report_files.append(img_path)
-
-        return slice_thickness
+        return results
