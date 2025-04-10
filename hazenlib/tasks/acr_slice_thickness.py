@@ -108,12 +108,12 @@ import numpy as np
 import scipy
 import skimage.morphology
 import skimage.measure
+from scipy.signal import peak_widths
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
 from hazenlib.utils import get_image_orientation, debug_image_sample
-
 
 
 class ACRSliceThickness(HazenTask):
@@ -251,6 +251,22 @@ class ACRSliceThickness(HazenTask):
         return img_path
 
     def find_insert(self, img, centre):
+        """
+        Crops the input image into a large cropped region and the inner insert ROI.
+
+        Both of these ROIs are leveled to half the computed level.
+        We compute the half level and apply it here as a way to simulate the ACR recommended steps for windowing the input.
+        We do not need to zoom the image here, though.
+        The insert ROI is devoid of boundary intensities so the computed histogram mean is representative of the overall
+        mean signal.
+
+        Args:
+            img (np.ndarray): input image.
+            centre (tuple[float|int]): center of the input image.
+
+        Returns:
+            tuple[np.ndarray]: Large crop window and insert ROI. Both are rescaled to the half window level.
+        """
         interest_region = self.ACR_obj.crop_image(img, centre[0],
                                                 centre[1],
                                                 self.CROPPED_ROI_WIDTH,
@@ -265,6 +281,21 @@ class ACRSliceThickness(HazenTask):
                 self.ACR_obj.apply_window_center_width(insert_region, half_level, 0))
 
     def find_ramps(self, img, centre):
+        """
+        Follows these simple steps:
+
+            #. Obtain insert ROI.
+            #. Obtain the ramp ROIs from the insert ROI.
+            #. Compute top ROI center and width.
+            #. Compute bottom ROI center and width.
+
+        Args:
+            img (np.ndarray): input image.
+            centre (tuple[float|int]): center of the input image.
+
+        Returns:
+            dict: Structure containing the cropped rois and the ramp center and width.
+        """
         general_roi, insert_roi = self.find_insert(img, centre)
 
         top_roi_leveled, bottom_roi_leveled = self.find_ramp_regions(insert_roi)
@@ -272,7 +303,6 @@ class ACRSliceThickness(HazenTask):
         top_c, top_width = self.find_ramp_center_width(top_roi_leveled)
 
         bottom_c, bottom_width = self.find_ramp_center_width(bottom_roi_leveled)
-
 
         return {
             'rois': {
@@ -292,25 +322,54 @@ class ACRSliceThickness(HazenTask):
             }
         }
 
-    def find_ramp_regions(self, leveled):
-        center_y = leveled.shape[0] / 2
-        top_roi_sample = self.ACR_obj.crop_image(leveled, 0, 0, leveled.shape[1], self.RAMP_HEIGHT, mode=None)
-        bottom_roi_sample = self.ACR_obj.crop_image(leveled, 0, abs(center_y + self.RAMP_Y_OFFSET), leveled.shape[1], self.RAMP_HEIGHT, mode=None)
+    def find_ramp_regions(self, insert):
+        """
+        Crop the top and bottom ramp relative to the center of the insert.
+
+        Args:
+            insert (np.ndarray): ramp to use in calculation of width.
+
+        Returns:
+            tuple: top slot ROI, bottom slot ROI
+        """
+        center_y = insert.shape[0] / 2
+        top_roi_sample = self.ACR_obj.crop_image(insert, 0, self.RAMP_Y_OFFSET, insert.shape[1], self.RAMP_HEIGHT, mode=None)
+        bottom_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
         return top_roi_sample, bottom_roi_sample
 
     def find_ramp_center_width(self, ramp):
+        """Given a ramp roi, perform a horizontal line profile looking for mean values.
+        Then do a rolling difference to accentuate the peaks.
+        Finally, collect the peaks.
+
+        Use the peaks to identify the edges of the ramp.
+        Return the difference as this is the relative difference of the ramp.
+
+        We also return a center point calculated relative to the given ramp for presentation purposes.
+
+        ..note::
+
+            I do a line profile using 4 lines from the input ramp. These 4 lines get collapsed into a 1-D array via
+            the Numpy function mean. Essentially, the line profile is the mean line through the slot.
+
+        Args:
+            ramp (np.ndarray): ramp to use in calculation of width.
+
+        Returns:
+            tuple: center point of ramp (x, y), width.
+        """
         profile = skimage.measure.profile_line(
             ramp,
             (0, 0),
             (0, ramp.shape[1]),
-            linewidth=int(np.round(ramp.shape[1])),
+            linewidth=4,
             reduce_func=np.mean,
             mode="constant"
         )
         x_diff = np.diff(profile)
         abs_x_diff_profile = np.absolute(x_diff)
 
-        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 10)
+        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
         left_point = np.min(peaks)
         right_point = np.max(peaks)
         length = right_point - left_point
@@ -318,11 +377,31 @@ class ACRSliceThickness(HazenTask):
         return (cx, ramp.shape[0] / 2), length
 
     def compute_thickness(self, top_width, bottom_width):
+        """ Given the top ramp's width and the bottom ramp's width, compute the slice thickness in units of mm.
+
+        Formula
+        _______
+
+            Slice thickness = 0.2 x (top x bottom)/(top + bottom)
+
+        ..note::
+
+            Per the ACR, "0.2 is a unitless factor that corrects for rotation of the phantom about the vertical (y) axis."
+            We use such factor in the formula.
+
+        Args:
+            top_width (float): Top ramp's calculated width.
+            bottom_width (float): Bottom ramp's calculated width.
+
+        Returns:
+            float: slice thickness in mm.
+        """
         return 0.2 * (top_width * bottom_width) / (top_width + bottom_width)
 
     def get_slice_thickness(self, dcm):
-        """Measure slice thickness. \n
-        Identify the ramps, measure the line profile, measure the FWHM, and use this to calculate the slice thickness.
+        """Measure slice thickness and report it.
+
+
 
         Args:
             dcm (pydicom.Dataset): DICOM image object.
