@@ -250,6 +250,7 @@ class ACRSliceThickness(HazenTask):
             os.path.join(self.report_path, f"{self.img_desc(dcm)}_slice_thickness.png")
         )
         fig.savefig(img_path)
+        self.report_files.append(img_path)
         return img_path
 
     def find_insert(self, img, centre):
