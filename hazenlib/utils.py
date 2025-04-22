@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 from multiprocessing import Pool
@@ -401,6 +402,56 @@ def get_datatype_min(dtype=np.uint8):
         return np.finfo(dtype).min
 
 
+def get_image_IOP(dcm):
+    """Get the IOP vectors from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return (
+            dcm.PerFrameFunctionalGroupsSequence[-1]
+            .PlaneOrientationSequence[-1]
+            .ImageOrientationPatient
+        )
+    return dcm.ImageOrientationPatient
+
+
+def get_image_IPP(dcm):
+    """Get the IPP vector from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return (
+            dcm.PerFrameFunctionalGroupsSequence[-1]
+            .PlanePositionSequence[-1]
+            .ImagePositionPatient
+        )
+    return dcm.ImagePositionPatient
+
+
+def get_image_spacing(dcm):
+    """Get the pixel resolution from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return dcm.PerFrameFunctionalGroupsSequence[-1].PixelMeasuresSequence[-1].PixelSpacing
+    return dcm.PixelSpacing
+
+
 def get_image_orientation(dcm):
     """
     From http://dicomiseasy.blogspot.com/2013/06/getting-oriented-using-image-plane.html
@@ -411,14 +462,7 @@ def get_image_orientation(dcm):
     Returns:
         str: Sagittal, Coronal or Transverse
     """
-    if is_enhanced_dicom(dcm):
-        iop = (
-            dcm.PerFrameFunctionalGroupsSequence[0]
-            .PlaneOrientationSequence[0]
-            .ImageOrientationPatient
-        )
-    else:
-        iop = dcm.ImageOrientationPatient
+    iop = get_image_IOP(dcm)
 
     iop_round = [round(x) for x in iop]
     plane = np.cross(iop_round[0:3], iop_round[3:6])
@@ -450,10 +494,10 @@ def determine_orientation(dcm_list):
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
-    iop = [np.round(c) for c in dcm_list[0].ImageOrientationPatient]
-    x = np.array([round(dcm.ImagePositionPatient[0]) for dcm in dcm_list])
-    y = np.array([round(dcm.ImagePositionPatient[1]) for dcm in dcm_list])
-    z = np.array([round(dcm.ImagePositionPatient[2]) for dcm in dcm_list])
+    iop = [np.round(c) for c in get_image_IOP(dcm_list[0])]
+    x = np.array([round(get_image_IPP(dcm)[0]) for dcm in dcm_list])
+    y = np.array([round(get_image_IPP(dcm)[1]) for dcm in dcm_list])
+    z = np.array([round(get_image_IPP(dcm)[2]) for dcm in dcm_list])
 
     # Determine phantom orientation based on DICOM header metadata
     # Assume phantom orientation based on ImageOrientationPatient
@@ -495,6 +539,55 @@ def determine_orientation(dcm_list):
             logger.info("y %s", set(y))
             logger.info("z %s", set(z))
             return "unexpected", [x, y, z]
+
+
+def compute_dicom_frame_size(dcm):
+    """Computes the full size in bytes of a Enhanced Multiframe DICOM frame. This value can be used for selecting the
+    range of bytes for a given frame when manipulating the individual frames.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        float|int: byte count of a single frame
+    """
+    bits_allocated = dcm.BitsAllocated
+    bytes_per_pixel = ((bits_allocated - 1) // 8) + 1
+    samples_per_pixel = dcm.SamplesPerPixel
+    rows, columns = dcm.Rows, dcm.Columns
+    initial_frame_length = rows * columns * samples_per_pixel
+    if bits_allocated == 1:
+        return initial_frame_length // 8 + (initial_frame_length % 8 > 0) # From pydicom's upcoming 3.0
+    return initial_frame_length * bytes_per_pixel
+
+
+def split_dicom(dcm):
+    """Crude method for uncatenating an Enhanced DICOM Multiframe object. If the input is enhanced, we assume that it
+    is a multiframe dicom and split it into constituent frames. We return this list.
+
+    Otherwise, return a list whose single element is the given dicom
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        float|int: byte count of a single frame
+    """
+    if is_enhanced_dicom(dcm):
+        frames = []
+        pixel_data = dcm.PixelData
+        frame_size = compute_dicom_frame_size(dcm)
+        frame_count = len(pixel_data) // frame_size
+        logger.info(frame_size)
+        for i in range(frame_count):
+            offset = i * frame_size
+            frame_pixel_data = pixel_data[offset:offset + frame_size]
+            new_dcm = copy.deepcopy(dcm)
+            new_dcm.PixelData = frame_pixel_data
+            new_dcm.InstanceNumber = i + 1
+            frames.append(new_dcm)
+        return frames
+    return [dcm]
 
 
 def rescale_to_byte(array):

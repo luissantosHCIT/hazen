@@ -5,7 +5,7 @@ import skimage
 import numpy as np
 from hazenlib.logger import logger
 from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range, \
-    create_circular_kernel, get_datatype_min, get_datatype_max
+    create_circular_kernel, get_datatype_min, get_datatype_max, is_enhanced_dicom, get_image_spacing, split_dicom
 
 
 class ACRObject:
@@ -25,15 +25,20 @@ class ACRObject:
 
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
-        self.dx, self.dy = dcm_list[0].PixelSpacing
+        first_dcm = dcm_list[0]
+        self.dx, self.dy = get_image_spacing(first_dcm)
         self.dx, self.dy = float(self.dx), float(self.dy)
         logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
-        # Perform sorting of the input DICOM list based on position
-        sorted_dcms = self.sort_dcms(dcm_list)
+        if is_enhanced_dicom(first_dcm):
+            # We do not need to sort an enhanced multiframe object
+            self.slice_stack = split_dicom(first_dcm)
+        else:
+            # Perform sorting of the input DICOM list based on position
+            sorted_dcms = self.sort_dcms(dcm_list)
 
-        # Perform sorting of the image slices based on phantom orientation
-        self.slice_stack = self.order_phantom_slices(sorted_dcms)
+            # Perform sorting of the image slices based on phantom orientation
+            self.slice_stack = self.order_phantom_slices(sorted_dcms)
         logger.info(f'Ordered slices => {[sl.InstanceNumber for sl in self.slice_stack]}')
 
     def sort_dcms(self, dcm_list):
@@ -782,6 +787,7 @@ class ACRObject:
         edges = np.histogram_bin_edges(search_data, bins=256)
         mean_bins = np.mean(np.vstack([edges[:-1], edges[1:]]), axis=0)
         mean = np.quantile(mean_bins, 0.945, method='inverted_cdf', weights=hist)
+        #mean = np.quantile(mean_bins, 0.90, method='inverted_cdf', weights=hist)
         logger.info(f'Histogram mean: {mean}')
         return mean
 
