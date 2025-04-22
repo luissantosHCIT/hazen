@@ -561,6 +561,39 @@ def compute_dicom_frame_size(dcm):
     return initial_frame_length * bytes_per_pixel
 
 
+def new_dicom(dcm, frame_pixel_data, i):
+    """Crude method for spawning a new copy of the input slice with the header patched for consumption.
+    This function will patch elements related to enhanced multiframe dicom into the root of the header.
+    I attempt the bare minimum patching needed for the proper functioning of the downstream tasks.
+
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+        frame_pixel_data (bytes|bytearray): Pixels meant for this new DICOM slice
+        i (int): index of slice in header contents of original slice
+
+    Returns:
+        pydicom.dataset.FileDataset: new DICOM slice
+    """
+    new_dcm = copy.deepcopy(dcm)
+    new_dcm.PixelData = frame_pixel_data
+    new_dcm.InstanceNumber = i + 1
+
+    subheader = new_dcm.PerFrameFunctionalGroupsSequence[i]
+
+    frame_voi = subheader.FrameVOILUTSequence[-1]
+    new_dcm.WindowCenter = dcm.get('WindowCenter', frame_voi.get('WindowCenter', None))
+    new_dcm.WindowWidth = dcm.get('WindowWidth', frame_voi.get('WindowWidth', None))
+
+    pixel_value_transformation = subheader.PixelValueTransformationSequence[-1]
+    new_dcm.RescaleIntercept = dcm.get('RescaleIntercept', pixel_value_transformation.get('RescaleIntercept', 1))
+    new_dcm.RescaleSlope = dcm.get('RescaleSlope', pixel_value_transformation.get('RescaleSlope', 1))
+    new_dcm.RescaleType = dcm.get('RescaleType', pixel_value_transformation.get('RescaleType', 1))
+    new_dcm.VOILUTFunction = dcm.get('VOILUTFunction', pixel_value_transformation.get('VOILUTFunction', 'linear'))
+
+    return new_dcm
+
+
 def split_dicom(dcm):
     """Crude method for uncatenating an Enhanced DICOM Multiframe object. If the input is enhanced, we assume that it
     is a multiframe dicom and split it into constituent frames. We return this list.
@@ -582,10 +615,7 @@ def split_dicom(dcm):
         for i in range(frame_count):
             offset = i * frame_size
             frame_pixel_data = pixel_data[offset:offset + frame_size]
-            new_dcm = copy.deepcopy(dcm)
-            new_dcm.PixelData = frame_pixel_data
-            new_dcm.InstanceNumber = i + 1
-            frames.append(new_dcm)
+            frames.append(new_dicom(dcm, frame_pixel_data, i))
         return frames
     return [dcm]
 
