@@ -696,49 +696,6 @@ def detect_circle(img, dx):
     return detected_circles
 
 
-def detect_circle2(img, dx):
-    normalised_img = cv.normalize(
-        src=img,
-        dst=None,
-        alpha=0,
-        beta=255,
-        norm_type=cv.NORM_MINMAX,
-        dtype=cv.CV_8U,
-    )
-    img_grad = cv.Sobel(normalised_img, 0, dx=1, dy=1)
-    detected_circles = cv.HoughCircles(
-        img_grad,
-        cv.HOUGH_GRADIENT_ALT,
-        1,
-        param1=300,
-        param2=0.8,
-        minDist=int(180 / dx),
-    )
-    # debug_image_sample(img_grad)
-    """
-    detected_circles = cv.HoughCircles(
-        normalised_img,
-        cv.HOUGH_GRADIENT,
-        1,
-        param1=50,
-        param2=30,
-        minDist=int(7 / dx),  # used to be 180 / dx
-    )
-    detected_circles = cv.HoughCircles(
-        normalised_img,
-        cv.HOUGH_GRADIENT,
-        1,
-        param1=50,
-        param2=30,
-        minDist=int(7 / dx),  # used to be 180 / dx
-        minRadius=int(0.75 / dx),
-    )
-    """
-    logger.info(detected_circles)
-    # debug_image_sample_circles(normalised_img, detected_circles)
-    return detected_circles
-
-
 def detect_centroid(img, dx, dy):
     """Attempt to detect circle locations using cv2.HoughCircles().
 
@@ -818,7 +775,6 @@ def detect_centroid(img, dx, dy):
                 minRadius=80,
                 maxRadius=200,
             )
-    logger.info(f"{detected_circles}")
     return detected_circles.flatten()
 
 
