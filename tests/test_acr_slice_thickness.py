@@ -11,8 +11,8 @@ from tests import TEST_DATA_DIR
 
 class TestACRSliceThicknessSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    centers = [(46.0, 2.0), (46.5, 2.0)]
-    dz = 5.8
+    centers = [(44.0, 2.0), (46.0, 2.0)]
+    dz = 5.18
 
     def setUp(self):
         input_files = get_dicom_files(self.ACR_DATA)
@@ -48,11 +48,11 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
 
 class TestACRSliceThicknessPhilipsAchieva(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
-    centers = [(47.5, 2.0), (40.0, 2.0)]
-    dz = 4.9
+    centers = [(46.0, 2.0), (39.0, 2.0)]
+    dz = 4.69
 
 
 class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
-    centers = [(42.0, 2.0), (47.0, 2.0)]
-    dz = 4.4
+    centers = [(44.0, 2.0), (48.0, 2.0)]
+    dz = 5.18

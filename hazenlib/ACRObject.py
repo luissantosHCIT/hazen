@@ -1089,6 +1089,21 @@ class ACRObject:
         return crop_img
 
     @staticmethod
+    def invert_image(img):
+        """Returns the image with its pixels inverted. This method creates a copy of the input image so the inversion
+        does not affect the original input.
+
+        Args:
+            img (np.ndarray): image data to invert
+
+        Returns:
+            np.ndarray: subset of a pixel array with given width
+        """
+        inverted = img.copy()
+        inverted = cv2.bitwise_not(inverted)
+        return inverted
+
+    @staticmethod
     def calculate_MTF(erf, dx, dy):
         """Calculate MTF
 

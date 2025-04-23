@@ -336,7 +336,7 @@ class ACRSpatialResolution(HazenTask):
         """Generates a series of ROIs centered around the hole arrays present in the ACR phantom.
         Preprocesses these rois and then attempts to detect hole array.
         These steps are parallelized for maximum processing efficiency.
-        Afterwards, write a report if requested. The report has the big picture view on the roi placements and includes
+        Afterward, write a report if requested. The report has the big picture view on the roi placements and includes
         the preprocessing outputs.
 
         Args:
