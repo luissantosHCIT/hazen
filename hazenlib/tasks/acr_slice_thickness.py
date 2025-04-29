@@ -127,7 +127,7 @@ class ACRSliceThickness(HazenTask):
         self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx         # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
         self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx         # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
         self.INSERT_ROI_HEIGHT = 10 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
-        self.INSERT_ROI_WIDTH = 90 / self.ACR_obj.dx     # Allow enough space to capture the slots which might be R-L offsetted.
+        self.INSERT_ROI_WIDTH = 110 / self.ACR_obj.dx    # Allow enough space to capture the slots which might be R-L offsetted.
         self.CROPPED_ROI_WIDTH = 150 / self.ACR_obj.dx   # Allow enough space to capture the slots which might be R-L offsetted.
         self.CROPPED_ROI_HEIGHT = 20 / self.ACR_obj.dx   # Capture slots plus some surrounding areas to help visualization in report.
         self.WINDOW_ROI_WIDTH = 10 / self.ACR_obj.dx     # Rectangle that captures enough of a population at the center to determine proper mean signal of slots.
