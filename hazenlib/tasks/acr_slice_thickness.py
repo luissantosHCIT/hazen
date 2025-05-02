@@ -113,7 +113,7 @@ from scipy.signal import peak_widths
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
-from hazenlib.utils import get_image_orientation, debug_image_sample
+from hazenlib.utils import get_image_orientation, debug_image_sample, debug_plot_sample
 
 
 class ACRSliceThickness(HazenTask):
@@ -123,13 +123,15 @@ class ACRSliceThickness(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
-        self.SAMPLING_LINE_WIDTH = 4 / self.ACR_obj.dx  # How many pixel lines to use in the sampling during ramp line profiling.
-        self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx        # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
-        self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx        # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
-        self.INSERT_ROI_HEIGHT = 9 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
-        self.INSERT_ROI_WIDTH = 90 / self.ACR_obj.dx    # Allow enough space to capture the slots which might be R-L offsetted.
-        self.CROPPED_ROI_WIDTH = 90 / self.ACR_obj.dx   # Allow enough space to capture the slots which might be R-L offsetted.
-        self.CROPPED_ROI_HEIGHT = 20 / self.ACR_obj.dx  # Capture slots plus some surrounding areas to help visualization in report.
+        self.SAMPLING_LINE_WIDTH = 4 / self.ACR_obj.dx   # How many pixel lines to use in the sampling during ramp line profiling.
+        self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx         # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
+        self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx         # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
+        self.INSERT_ROI_HEIGHT = 10 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
+        self.INSERT_ROI_WIDTH = 150 / self.ACR_obj.dx    # Allow enough space to capture the slots which might be R-L offsetted.
+        self.CROPPED_ROI_WIDTH = 150 / self.ACR_obj.dx   # Allow enough space to capture the slots which might be R-L offsetted.
+        self.CROPPED_ROI_HEIGHT = 20 / self.ACR_obj.dx   # Capture slots plus some surrounding areas to help visualization in report.
+        self.WINDOW_ROI_WIDTH = 10 / self.ACR_obj.dx     # Rectangle that captures enough of a population at the center to determine proper mean signal of slots.
+        self.WINDOW_ROI_HEIGHT = 5 / self.ACR_obj.dx     # Rectangle that captures enough of a population at the center to determine proper mean signal of slots.
 
     def run(self) -> dict:
         """Main function for performing slice width measurement
@@ -255,13 +257,21 @@ class ACRSliceThickness(HazenTask):
 
     def find_insert(self, img, centre):
         """
-        Crops the input image into a large cropped region and the inner insert ROI.
+        This is a very important step. Proper isolation of the insert makes ramp detection and length calculation
+        much easier!
 
-        Both of these ROIs are leveled to half the computed level.
-        We compute the half level and apply it here as a way to simulate the ACR recommended steps for windowing the input.
-        We do not need to zoom the image here, though.
-        The insert ROI is devoid of boundary intensities so the computed histogram mean is representative of the overall
-        mean signal.
+        Steps
+        +++++
+
+            #. Crops the input image into a large cropped region.
+            #. Crops the input image into a small rectangular region.
+            #. Use the small rectangular window to determine the window level.
+            #. Use the window level to determine the half level per ACR guidelines. Technically, I am short-cicuiting
+                this portion of the guidelines, but we gain a robust way to extract the ramps.
+            #. Level the large ROI.
+            #. Test large ROI for relative Y center coordinate.
+            #. Use large ROI relative center to determine Insert ROI window and crop it.
+            #. Return large ROI and Insert ROI. Both are properly windowed.
 
         Args:
             img (np.ndarray): input image.
@@ -270,18 +280,107 @@ class ACRSliceThickness(HazenTask):
         Returns:
             tuple[np.ndarray]: Large crop window and insert ROI. Both are rescaled to the half window level.
         """
+        # Create a crop window of the general insert region. This includes portions of the bordering bright pixels
+        # with ample space to ensure capture of the insert regardless of centroid errors.
         interest_region = self.ACR_obj.crop_image(img, centre[0],
                                                 centre[1],
                                                 self.CROPPED_ROI_WIDTH,
                                                 self.CROPPED_ROI_HEIGHT)
-        insert_region = self.ACR_obj.crop_image(img, centre[0],
+        # Grab a crop of a rectangle around the centroid.
+        # This is meant to ensure we get the correct half level in an approximation of ACR guidelines.
+        window_region = self.ACR_obj.crop_image(img, centre[0],
                                                 centre[1],
+                                                self.WINDOW_ROI_WIDTH,
+                                                self.WINDOW_ROI_HEIGHT)
+
+        level, width = self.ACR_obj.compute_center_and_width(window_region)
+        half_level = level / 2
+
+        # Generate leveled version of the general ROI. This is effectively a binarization step. It is very important
+        # of a step since it simplifies centering improvements and edge/peak detection.
+        leveled_interest_region = self.ACR_obj.apply_window_center_width(interest_region, half_level, 0)
+
+        # Find out the relative center of the Insert ROI with respect to the general region of interest that includes
+        # the bordering bright pixels.
+        # Basically, we do a line profile to determine the true center of the slot region.
+        # This helps with correcting any errors or biases in centering introduced by the centroid detection.
+        center_y = int(self.find_insert_region_center_y(self.ACR_obj.invert_image(leveled_interest_region)))
+        center_x = int(np.ceil(leveled_interest_region.shape[1] / 2))
+        logger.info(f'Relative Center of Insert ROI is => ({center_x}, {center_y})')
+
+        # The grand finale, crop a perfect insert rectangle that contains the slots
+        insert_region = self.ACR_obj.crop_image(leveled_interest_region, center_x,
+                                                int(center_y),
                                                 self.INSERT_ROI_WIDTH,
                                                 self.INSERT_ROI_HEIGHT)
-        level, width = self.ACR_obj.compute_center_and_width(insert_region)
-        half_level = level / 2
-        return (self.ACR_obj.apply_window_center_width(interest_region, half_level, 0),
-                self.ACR_obj.apply_window_center_width(insert_region, half_level, 0))
+        return leveled_interest_region, insert_region
+
+    def find_insert_region_center_y(self, insert_region):
+        # the line profile skips first pixel.
+        profile = skimage.measure.profile_line(
+            insert_region,
+            (-1, 0),
+            (insert_region.shape[0], 0),
+            mode="constant"
+        )
+        x_diff = np.diff(profile)
+        abs_x_diff_profile = np.absolute(x_diff)
+
+        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
+        return np.ceil((peaks[0] + peaks[-1]) / 2)
+
+    def find_ramp_regions(self, insert):
+        """
+        Crop the top and bottom ramp relative to the center of the insert.
+
+        Args:
+            insert (np.ndarray): ramp to use in calculation of width.
+
+        Returns:
+            tuple: top slot ROI, bottom slot ROI
+        """
+        center_y = insert.shape[0] / 2
+        top_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y - self.RAMP_HEIGHT + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
+        bottom_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
+        return top_roi_sample, bottom_roi_sample
+
+    def find_ramp_center_width(self, ramp):
+        """Given a ramp roi, perform a horizontal line profile looking for mean values.
+        Then do a rolling difference to accentuate the peaks.
+        Finally, collect the peaks.
+
+        Use the peaks to identify the edges of the ramp.
+        Return the difference as this is the relative difference of the ramp.
+
+        We also return a center point calculated relative to the given ramp for presentation purposes.
+
+        ..note::
+
+            I do a line profile using 4 lines from the input ramp. These 4 lines get collapsed into a 1-D array via
+            the Numpy function mean. Essentially, the line profile is the mean line through the slot.
+
+        Args:
+            ramp (np.ndarray): ramp to use in calculation of width.
+
+        Returns:
+            tuple: center point of ramp (x, y), width.
+        """
+        blurred = self.ACR_obj.filter_with_gaussian(ramp)
+        y_mid = int(np.round(ramp.shape[0] / 2))
+        samples = [
+            skimage.measure.profile_line(
+                blurred,
+                (y_mid - 1, i),
+                (y_mid + 1, i),
+                mode="constant"
+            )
+            for i in range(ramp.shape[1])
+        ]
+        profile = [np.sum(samples[i]) for i in range(ramp.shape[1])]
+
+        cx, fwhm = self.ACR_obj.calculate_FWHM(profile)
+
+        return (cx, y_mid), float(fwhm)
 
     def find_ramps(self, img, centre):
         """
@@ -324,60 +423,6 @@ class ACRSliceThickness(HazenTask):
                 }
             }
         }
-
-    def find_ramp_regions(self, insert):
-        """
-        Crop the top and bottom ramp relative to the center of the insert.
-
-        Args:
-            insert (np.ndarray): ramp to use in calculation of width.
-
-        Returns:
-            tuple: top slot ROI, bottom slot ROI
-        """
-        center_y = insert.shape[0] / 2
-        top_roi_sample = self.ACR_obj.crop_image(insert, 0, self.RAMP_Y_OFFSET, insert.shape[1], self.RAMP_HEIGHT, mode=None)
-        bottom_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
-        return top_roi_sample, bottom_roi_sample
-
-    def find_ramp_center_width(self, ramp):
-        """Given a ramp roi, perform a horizontal line profile looking for mean values.
-        Then do a rolling difference to accentuate the peaks.
-        Finally, collect the peaks.
-
-        Use the peaks to identify the edges of the ramp.
-        Return the difference as this is the relative difference of the ramp.
-
-        We also return a center point calculated relative to the given ramp for presentation purposes.
-
-        ..note::
-
-            I do a line profile using 4 lines from the input ramp. These 4 lines get collapsed into a 1-D array via
-            the Numpy function mean. Essentially, the line profile is the mean line through the slot.
-
-        Args:
-            ramp (np.ndarray): ramp to use in calculation of width.
-
-        Returns:
-            tuple: center point of ramp (x, y), width.
-        """
-        profile = skimage.measure.profile_line(
-            ramp,
-            (0, 0),
-            (0, ramp.shape[1]),
-            linewidth=int(np.round(self.SAMPLING_LINE_WIDTH)),
-            reduce_func=np.mean,
-            mode="constant"
-        )
-        x_diff = np.diff(profile)
-        abs_x_diff_profile = np.absolute(x_diff)
-
-        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
-        left_point = np.min(peaks)
-        right_point = np.max(peaks)
-        length = right_point - left_point
-        cx = float(left_point + length / 2)
-        return (cx, float(ramp.shape[0] / 2)), float(length)
 
     def compute_thickness(self, top_width, bottom_width):
         """ Given the top ramp's width and the bottom ramp's width, compute the slice thickness in units of mm.
@@ -425,7 +470,7 @@ class ACRSliceThickness(HazenTask):
 
         # Per the ACR formula. Slice thickness = 0.2 x (top x bottom)/(top + bottom)
         top_width = ramps['ramps']['top']['width']
-        bottom_width = ramps['ramps']['top']['width']
+        bottom_width = ramps['ramps']['bottom']['width']
         thickness = self.compute_thickness(top_width, bottom_width)
 
         results = {

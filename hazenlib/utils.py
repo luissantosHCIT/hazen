@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 from multiprocessing import Pool
@@ -401,6 +402,56 @@ def get_datatype_min(dtype=np.uint8):
         return np.finfo(dtype).min
 
 
+def get_image_IOP(dcm):
+    """Get the IOP vectors from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return (
+            dcm.PerFrameFunctionalGroupsSequence[-1]
+            .PlaneOrientationSequence[-1]
+            .ImageOrientationPatient
+        )
+    return dcm.ImageOrientationPatient
+
+
+def get_image_IPP(dcm):
+    """Get the IPP vector from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return (
+            dcm.PerFrameFunctionalGroupsSequence[-1]
+            .PlanePositionSequence[-1]
+            .ImagePositionPatient
+        )
+    return dcm.ImagePositionPatient
+
+
+def get_image_spacing(dcm):
+    """Get the pixel resolution from the DICOM header.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        pydicom.multival.MultiValue: vector
+    """
+    if is_enhanced_dicom(dcm):
+        return dcm.PerFrameFunctionalGroupsSequence[-1].PixelMeasuresSequence[-1].PixelSpacing
+    return dcm.PixelSpacing
+
+
 def get_image_orientation(dcm):
     """
     From http://dicomiseasy.blogspot.com/2013/06/getting-oriented-using-image-plane.html
@@ -411,14 +462,7 @@ def get_image_orientation(dcm):
     Returns:
         str: Sagittal, Coronal or Transverse
     """
-    if is_enhanced_dicom(dcm):
-        iop = (
-            dcm.PerFrameFunctionalGroupsSequence[0]
-            .PlaneOrientationSequence[0]
-            .ImageOrientationPatient
-        )
-    else:
-        iop = dcm.ImageOrientationPatient
+    iop = get_image_IOP(dcm)
 
     iop_round = [round(x) for x in iop]
     plane = np.cross(iop_round[0:3], iop_round[3:6])
@@ -450,10 +494,10 @@ def determine_orientation(dcm_list):
     # Get the number of images in the list,
     # assuming each have a unique position in one of the 3 directions
     expected = len(dcm_list)
-    iop = [np.round(c) for c in dcm_list[0].ImageOrientationPatient]
-    x = np.array([round(dcm.ImagePositionPatient[0]) for dcm in dcm_list])
-    y = np.array([round(dcm.ImagePositionPatient[1]) for dcm in dcm_list])
-    z = np.array([round(dcm.ImagePositionPatient[2]) for dcm in dcm_list])
+    iop = [np.round(c) for c in get_image_IOP(dcm_list[0])]
+    x = np.array([round(get_image_IPP(dcm)[0]) for dcm in dcm_list])
+    y = np.array([round(get_image_IPP(dcm)[1]) for dcm in dcm_list])
+    z = np.array([round(get_image_IPP(dcm)[2]) for dcm in dcm_list])
 
     # Determine phantom orientation based on DICOM header metadata
     # Assume phantom orientation based on ImageOrientationPatient
@@ -495,6 +539,85 @@ def determine_orientation(dcm_list):
             logger.info("y %s", set(y))
             logger.info("z %s", set(z))
             return "unexpected", [x, y, z]
+
+
+def compute_dicom_frame_size(dcm):
+    """Computes the full size in bytes of a Enhanced Multiframe DICOM frame. This value can be used for selecting the
+    range of bytes for a given frame when manipulating the individual frames.
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        float|int: byte count of a single frame
+    """
+    bits_allocated = dcm.BitsAllocated
+    bytes_per_pixel = ((bits_allocated - 1) // 8) + 1
+    samples_per_pixel = dcm.SamplesPerPixel
+    rows, columns = dcm.Rows, dcm.Columns
+    initial_frame_length = rows * columns * samples_per_pixel
+    if bits_allocated == 1:
+        return initial_frame_length // 8 + (initial_frame_length % 8 > 0) # From pydicom's upcoming 3.0
+    return initial_frame_length * bytes_per_pixel
+
+
+def new_dicom(dcm, frame_pixel_data, i):
+    """Crude method for spawning a new copy of the input slice with the header patched for consumption.
+    This function will patch elements related to enhanced multiframe dicom into the root of the header.
+    I attempt the bare minimum patching needed for the proper functioning of the downstream tasks.
+
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+        frame_pixel_data (bytes|bytearray): Pixels meant for this new DICOM slice
+        i (int): index of slice in header contents of original slice
+
+    Returns:
+        pydicom.dataset.FileDataset: new DICOM slice
+    """
+    new_dcm = copy.deepcopy(dcm)
+    new_dcm.PixelData = frame_pixel_data
+    new_dcm.InstanceNumber = i + 1
+
+    subheader = new_dcm.PerFrameFunctionalGroupsSequence[i]
+
+    frame_voi = subheader.FrameVOILUTSequence[-1]
+    new_dcm.WindowCenter = dcm.get('WindowCenter', frame_voi.get('WindowCenter', None))
+    new_dcm.WindowWidth = dcm.get('WindowWidth', frame_voi.get('WindowWidth', None))
+
+    pixel_value_transformation = subheader.PixelValueTransformationSequence[-1]
+    new_dcm.RescaleIntercept = dcm.get('RescaleIntercept', pixel_value_transformation.get('RescaleIntercept', 1))
+    new_dcm.RescaleSlope = dcm.get('RescaleSlope', pixel_value_transformation.get('RescaleSlope', 1))
+    new_dcm.RescaleType = dcm.get('RescaleType', pixel_value_transformation.get('RescaleType', 1))
+    new_dcm.VOILUTFunction = dcm.get('VOILUTFunction', pixel_value_transformation.get('VOILUTFunction', 'linear'))
+
+    return new_dcm
+
+
+def split_dicom(dcm):
+    """Crude method for uncatenating an Enhanced DICOM Multiframe object. If the input is enhanced, we assume that it
+    is a multiframe dicom and split it into constituent frames. We return this list.
+
+    Otherwise, return a list whose single element is the given dicom
+
+    Args:
+        dcm (pydicom.dataset.FileDataset): DICOM Dataset
+
+    Returns:
+        float|int: byte count of a single frame
+    """
+    if is_enhanced_dicom(dcm):
+        frames = []
+        pixel_data = dcm.PixelData
+        frame_size = compute_dicom_frame_size(dcm)
+        frame_count = len(pixel_data) // frame_size
+        logger.info(frame_size)
+        for i in range(frame_count):
+            offset = i * frame_size
+            frame_pixel_data = pixel_data[offset:offset + frame_size]
+            frames.append(new_dicom(dcm, frame_pixel_data, i))
+        return frames
+    return [dcm]
 
 
 def rescale_to_byte(array):
@@ -570,49 +693,6 @@ def detect_circle(img, dx):
             maxRadius=int(16 / dx),
         )
     # debug_image_sample(normalised_img)
-    return detected_circles
-
-
-def detect_circle2(img, dx):
-    normalised_img = cv.normalize(
-        src=img,
-        dst=None,
-        alpha=0,
-        beta=255,
-        norm_type=cv.NORM_MINMAX,
-        dtype=cv.CV_8U,
-    )
-    img_grad = cv.Sobel(normalised_img, 0, dx=1, dy=1)
-    detected_circles = cv.HoughCircles(
-        img_grad,
-        cv.HOUGH_GRADIENT_ALT,
-        1,
-        param1=300,
-        param2=0.8,
-        minDist=int(180 / dx),
-    )
-    # debug_image_sample(img_grad)
-    """
-    detected_circles = cv.HoughCircles(
-        normalised_img,
-        cv.HOUGH_GRADIENT,
-        1,
-        param1=50,
-        param2=30,
-        minDist=int(7 / dx),  # used to be 180 / dx
-    )
-    detected_circles = cv.HoughCircles(
-        normalised_img,
-        cv.HOUGH_GRADIENT,
-        1,
-        param1=50,
-        param2=30,
-        minDist=int(7 / dx),  # used to be 180 / dx
-        minRadius=int(0.75 / dx),
-    )
-    """
-    logger.info(detected_circles)
-    # debug_image_sample_circles(normalised_img, detected_circles)
     return detected_circles
 
 
@@ -695,7 +775,6 @@ def detect_centroid(img, dx, dy):
                 minRadius=80,
                 maxRadius=200,
             )
-    logger.info(f"{detected_circles}")
     return detected_circles.flatten()
 
 
@@ -946,6 +1025,21 @@ def debug_image_sample(img, out_path=None):
         snapshot = DebugSnapshotShow(img).image
         if not out_path is None:
             snapshot.save(out_path, format="PNG", dpi=(300, 300))
+
+
+def debug_plot_sample(img, plot_indx=0):
+    """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
+    Use this function to force a display of an intermediate numpy image array to visually inspect results.
+
+    Args:
+        img (np.ndarray): pixel array containing the data to display
+        out_path (str): file path where you would like to save a copy of the image
+
+    """
+    if len(img):
+        import matplotlib.pyplot as plt
+        plt.plot(img)
+        plt.savefig(f'/tmp/hazen_debug_plot_{plot_indx}.png')
 
 
 def debug_image_sample_circles(img, circles=[], out_path=None):

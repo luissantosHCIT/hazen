@@ -5,7 +5,8 @@ import skimage
 import numpy as np
 from hazenlib.logger import logger
 from hazenlib.utils import determine_orientation, detect_circle, detect_centroid, debug_image_sample, expand_data_range, \
-    create_circular_kernel, get_datatype_min, get_datatype_max
+    create_circular_kernel, get_datatype_min, get_datatype_max, is_enhanced_dicom, get_image_spacing, split_dicom, \
+    debug_plot_sample
 
 
 class ACRObject:
@@ -25,15 +26,20 @@ class ACRObject:
 
         # # Initialise an ACR object from a list of images of the ACR phantom
         # Store pixel spacing value from the first image (expected to be the same for all)
-        self.dx, self.dy = dcm_list[0].PixelSpacing
+        first_dcm = dcm_list[0]
+        self.dx, self.dy = get_image_spacing(first_dcm)
         self.dx, self.dy = float(self.dx), float(self.dy)
         logger.info(f'In-plane acquisition resolution is {self.dx} x {self.dy}')
 
-        # Perform sorting of the input DICOM list based on position
-        sorted_dcms = self.sort_dcms(dcm_list)
+        if is_enhanced_dicom(first_dcm):
+            # We do not need to sort an enhanced multiframe object
+            self.slice_stack = split_dicom(first_dcm)
+        else:
+            # Perform sorting of the input DICOM list based on position
+            sorted_dcms = self.sort_dcms(dcm_list)
 
-        # Perform sorting of the image slices based on phantom orientation
-        self.slice_stack = self.order_phantom_slices(sorted_dcms)
+            # Perform sorting of the image slices based on phantom orientation
+            self.slice_stack = self.order_phantom_slices(sorted_dcms)
         logger.info(f'Ordered slices => {[sl.InstanceNumber for sl in self.slice_stack]}')
 
     def sort_dcms(self, dcm_list):
@@ -782,6 +788,7 @@ class ACRObject:
         edges = np.histogram_bin_edges(search_data, bins=256)
         mean_bins = np.mean(np.vstack([edges[:-1], edges[1:]]), axis=0)
         mean = np.quantile(mean_bins, 0.945, method='inverted_cdf', weights=hist)
+        #mean = np.quantile(mean_bins, 0.90, method='inverted_cdf', weights=hist)
         logger.info(f'Histogram mean: {mean}')
         return mean
 
@@ -1081,6 +1088,64 @@ class ACRObject:
         crop_img = img[crop_y[0]:crop_y[1], crop_x[0]:crop_x[1]]
 
         return crop_img
+
+    @staticmethod
+    def invert_image(img):
+        """Returns the image with its pixels inverted. This method creates a copy of the input image so the inversion
+        does not affect the original input.
+
+        Args:
+            img (np.ndarray): image data to invert
+
+        Returns:
+            np.ndarray: subset of a pixel array with given width
+        """
+        inverted = img.copy()
+        inverted = cv2.bitwise_not(inverted)
+        return inverted
+
+    @staticmethod
+    def calculate_FWHM(line):
+        """Calculate full width at half maximum of the line profile.
+
+        I used a modified version of the method outlined here https://typethepipe.com/post/measure-fwhm-image-with-python/
+
+        Args:
+            line (np.ndarray): slice profile curve.
+
+        Returns:
+            tuple: center x coordinate alongside the line profile, fwhm (which is the width of the are we care about
+            in the profile).
+        """
+        # Step 1, compute edges where the ramp curve begins and ends.
+        # Note, due to imperfections in input, you might have a few weird spikes in the neighborhood but this is ok.
+        # Why? Because we will look for the midpoint next as an estimate of the pixel intensity we need to filter by.
+        diff = np.diff(line)
+        abs_diff_profile = np.absolute(diff)
+
+        # Step 2, find a set of top peaks. We need at least two for the boundary of the roi, but I selected 10 to give
+        # ample space to pick up noise without losing accuracy.
+        peak_data = ACRObject.find_n_highest_peaks(abs_diff_profile, 10)
+
+        # Step 3, find the midpoint which is very likely to be somewhere inside the roi.
+        peaks = peak_data[0]
+        peak = int(np.round((peaks[0] + peaks[-1]) / 2))
+
+        # Step 4, Get pixel intensity and calculate the half max intensity.
+        peak_val = line[peak]
+        half_max = peak_val / 2
+
+        # Step 5, find the samples along the line that have a pixel intensity higher or similar to the half max.
+        horizontal_half = np.where(line >= half_max)[0]
+
+        # Step 6, calculate the width in this region
+        fwhm = horizontal_half[-1] - horizontal_half[0] + 1
+
+        # Step 7, calculate true center of peak considered.
+        # I don't use the raw peak as the center because that could be biased by outliers.
+        cx = (horizontal_half[0] + np.round(fwhm / 2))
+
+        return cx, fwhm
 
     @staticmethod
     def calculate_MTF(erf, dx, dy):
