@@ -113,7 +113,7 @@ from scipy.signal import peak_widths
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
 from hazenlib.logger import logger
-from hazenlib.utils import get_image_orientation, debug_image_sample
+from hazenlib.utils import get_image_orientation, debug_image_sample, debug_plot_sample
 
 
 class ACRSliceThickness(HazenTask):
@@ -365,24 +365,22 @@ class ACRSliceThickness(HazenTask):
         Returns:
             tuple: center point of ramp (x, y), width.
         """
-        profile = skimage.measure.profile_line(
-            ramp,
-            (0, 0),
-            (0, ramp.shape[1]),
-            linewidth=int(np.round(self.SAMPLING_LINE_WIDTH)),
-            reduce_func=np.mean,
-            mode="constant"
-        )
-        x_diff = np.diff(profile)
-        abs_x_diff_profile = np.absolute(x_diff)
+        blurred = self.ACR_obj.filter_with_gaussian(ramp)
+        y_mid = int(np.round(ramp.shape[0] / 2))
+        samples = [
+            skimage.measure.profile_line(
+                blurred,
+                (y_mid - 1, i),
+                (y_mid + 1, i),
+                mode="constant"
+            )
+            for i in range(ramp.shape[1])
+        ]
+        profile = [np.sum(samples[i]) for i in range(ramp.shape[1])]
 
-        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
-        left_point = np.min(peaks)
-        right_point = np.max(peaks)
-        # Up until this point, the width was based pixels per mm, here we adjust it back to mm
-        length = (right_point - left_point) * self.ACR_obj.dx
-        cx = np.round(float(left_point + length / 2))
-        return (cx, np.round(float(ramp.shape[0] / 2))), float(length)
+        cx, fwhm = self.ACR_obj.calculate_FWHM(profile)
+
+        return (cx, y_mid), float(fwhm)
 
     def find_ramps(self, img, centre):
         """
