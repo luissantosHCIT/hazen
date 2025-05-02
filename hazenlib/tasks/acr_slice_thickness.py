@@ -470,7 +470,7 @@ class ACRSliceThickness(HazenTask):
 
         # Per the ACR formula. Slice thickness = 0.2 x (top x bottom)/(top + bottom)
         top_width = ramps['ramps']['top']['width']
-        bottom_width = ramps['ramps']['top']['width']
+        bottom_width = ramps['ramps']['bottom']['width']
         thickness = self.compute_thickness(top_width, bottom_width)
 
         results = {
