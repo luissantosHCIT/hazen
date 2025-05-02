@@ -1027,6 +1027,21 @@ def debug_image_sample(img, out_path=None):
             snapshot.save(out_path, format="PNG", dpi=(300, 300))
 
 
+def debug_plot_sample(img, plot_indx=0):
+    """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
+    Use this function to force a display of an intermediate numpy image array to visually inspect results.
+
+    Args:
+        img (np.ndarray): pixel array containing the data to display
+        out_path (str): file path where you would like to save a copy of the image
+
+    """
+    if len(img):
+        import matplotlib.pyplot as plt
+        plt.plot(img)
+        plt.savefig(f'/tmp/hazen_debug_plot_{plot_indx}.png')
+
+
 def debug_image_sample_circles(img, circles=[], out_path=None):
     """Uses :py:class:`DebugSnapshotShow` to display the current image snapshot.
     Use this function to force a display of an intermediate numpy image array to visually inspect results.
