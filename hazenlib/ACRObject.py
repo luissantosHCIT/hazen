@@ -1117,35 +1117,43 @@ class ACRObject:
             tuple: center x coordinate alongside the line profile, fwhm (which is the width of the are we care about
             in the profile).
         """
-        # Step 1, compute edges where the ramp curve begins and ends.
-        # Note, due to imperfections in input, you might have a few weird spikes in the neighborhood but this is ok.
-        # Why? Because we will look for the midpoint next as an estimate of the pixel intensity we need to filter by.
-        diff = np.diff(line)
-        abs_diff_profile = np.absolute(diff)
+        default_cx = int(np.round(len(line) / 2))
+        default_fwhm = 990
+        try:
+            # Step 1, compute edges where the ramp curve begins and ends.
+            # Note, due to imperfections in input, you might have a few weird spikes in the neighborhood but this is ok.
+            # Why? Because we will look for the midpoint next as an estimate of the pixel intensity we need to filter by.
+            diff = np.diff(line)
+            abs_diff_profile = np.absolute(diff)
 
-        # Step 2, find a set of top peaks. We need at least two for the boundary of the roi, but I selected 10 to give
-        # ample space to pick up noise without losing accuracy.
-        peak_data = ACRObject.find_n_highest_peaks(abs_diff_profile, 10)
+            # Step 2, find a set of top peaks. We need at least two for the boundary of the roi, but I selected 10 to give
+            # ample space to pick up noise without losing accuracy.
+            peak_data = ACRObject.find_n_highest_peaks(abs_diff_profile, 10)
 
-        # Step 3, find the midpoint which is very likely to be somewhere inside the roi.
-        peaks = peak_data[0]
-        peak = int(np.round((peaks[0] + peaks[-1]) / 2))
+            # Step 3, find the midpoint which is very likely to be somewhere inside the roi.
+            peaks = peak_data[0]
+            peak = int(np.round((peaks[0] + peaks[-1]) / 2))
 
-        # Step 4, Get pixel intensity and calculate the half max intensity.
-        peak_val = line[peak]
-        half_max = peak_val / 2
+            # Step 4, Get pixel intensity and calculate the half max intensity.
+            peak_val = line[peak]
+            half_max = peak_val / 2
 
-        # Step 5, find the samples along the line that have a pixel intensity higher or similar to the half max.
-        horizontal_half = np.where(line >= half_max)[0]
+            # Step 5, find the samples along the line that have a pixel intensity higher or similar to the half max.
+            horizontal_half = np.where(line >= half_max)[0]
 
-        # Step 6, calculate the width in this region
-        fwhm = horizontal_half[-1] - horizontal_half[0] + 1
+            # Step 6, calculate the width in this region
+            fwhm = horizontal_half[-1] - horizontal_half[0] + 1
 
-        # Step 7, calculate true center of peak considered.
-        # I don't use the raw peak as the center because that could be biased by outliers.
-        cx = (horizontal_half[0] + np.round(fwhm / 2))
+            # Step 7, calculate true center of peak considered.
+            # I don't use the raw peak as the center because that could be biased by outliers.
+            cx = (horizontal_half[0] + np.round(fwhm / 2))
 
-        return cx, fwhm
+            return cx, fwhm
+        except Exception as w:
+            logger.warning(w)
+            logger.warning('Received an empty line sample. This often happens if region of interest is empty.')
+            logger.warning('Defaulting line x coordinate to {} and fwhm to {}!'.format(default_cx, default_fwhm))
+        return default_cx, default_fwhm
 
     @staticmethod
     def calculate_MTF(erf, dx, dy):

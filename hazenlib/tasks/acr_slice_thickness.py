@@ -316,18 +316,25 @@ class ACRSliceThickness(HazenTask):
         return leveled_interest_region, insert_region
 
     def find_insert_region_center_y(self, insert_region):
-        # the line profile skips first pixel.
-        profile = skimage.measure.profile_line(
-            insert_region,
-            (-1, 0),
-            (insert_region.shape[0], 0),
-            mode="constant"
-        )
-        x_diff = np.diff(profile)
-        abs_x_diff_profile = np.absolute(x_diff)
+        default_y_center = int(np.round(insert_region.shape[0] / 2))
+        try:
+            # the line profile skips first pixel.
+            profile = skimage.measure.profile_line(
+                insert_region,
+                (-1, 0),
+                (insert_region.shape[0], 0),
+                mode="constant"
+            )
+            x_diff = np.diff(profile)
+            abs_x_diff_profile = np.absolute(x_diff)
 
-        peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
-        return np.ceil((peaks[0] + peaks[-1]) / 2)
+            peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
+            return np.ceil((peaks[0] + peaks[-1]) / 2)
+        except Exception as w:
+            logger.warning(w)
+            logger.warning('Defaulting to {} as insert y center!'.format(default_y_center))
+
+        return default_y_center
 
     def find_ramp_regions(self, insert):
         """
