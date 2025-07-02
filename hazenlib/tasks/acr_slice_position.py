@@ -35,6 +35,7 @@ import skimage.measure
 
 from hazenlib.HazenTask import HazenTask
 from hazenlib.ACRObject import ACRObject
+from hazenlib.utils import logger, debug_image_sample, debug_plot_sample
 
 
 class ACRSlicePosition(HazenTask):
@@ -67,7 +68,7 @@ class ACRSlicePosition(HazenTask):
                     "length difference": round(result, 2)
                 }
             except Exception as e:
-                print(
+                logger.error(
                     f"Could not calculate the bar length difference for {self.img_desc(dcm)} because of : {e}"
                 )
                 traceback.print_exc(file=sys.stdout)
@@ -191,7 +192,7 @@ class ACRSlicePosition(HazenTask):
         # place 2nd y point 47mm from top of phantom
         y_pt = round(y[0] + (47 - dist_to_y) / self.ACR_obj.dy)
 
-        return [x_pts_left, x_pts_right], [y[0], y_pt]
+        return [int(x_pts_left), int(x_pts_right)], [int(y[0]), int(y_pt)]
 
     def get_slice_position(self, dcm):
         """Measure slice position. \n
