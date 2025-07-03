@@ -52,7 +52,7 @@ class ACRSlicePosition(HazenTask):
         self.ACR_obj = ACRObject(self.dcm_list)
         self.Y_WEDGE_OFFSET = int(19 / self.ACR_obj.dx)
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
-        self.MINIMUM_Y_PEAK_THRESHOLD = int(15 / self.ACR_obj.dx)
+        self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
 
     def run(self) -> dict:
         """Main function for performing slice position measurement
@@ -175,12 +175,12 @@ class ACRSlicePosition(HazenTask):
             img,
             (0, center[0]),
             (center[1], center[0]),
-            linewidth=int(15/self.ACR_obj.dx),
+            linewidth=int(1/self.ACR_obj.dx),
             mode="constant",
             reduce_func=np.mean,
         ).flatten()
         abs_diff_y_profile = np.abs(np.diff(yray))
-        smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, 1.5)
+        smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, 1/self.ACR_obj.dy)
 
         ypeaks = self.ACR_obj.find_n_highest_peaks(smoothed_y_profile, 5)
         # A properly centered phantom will not have any signal in upper region (0 < y <~20)
@@ -237,8 +237,6 @@ class ACRSlicePosition(HazenTask):
             rescaled, self.ACR_obj.dx, self.ACR_obj.dy
         )
         x_pts, y_pts = self.find_wedges(rescaled, cxy)
-        logger.info(x_pts)
-        logger.info(y_pts)
 
         # line profile through left wedge
         line_prof_L = skimage.measure.profile_line(
