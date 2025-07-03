@@ -195,7 +195,6 @@ class ACRSlicePosition(HazenTask):
 
         # Raytrace upward to find transition zone of wedge
         top_y = int(y_center - self.Y_WEDGE_OFFSET)
-        logger.info(top_y)
         xray = skimage.measure.profile_line(
             img,
             (top_y, 0),
@@ -208,7 +207,6 @@ class ACRSlicePosition(HazenTask):
         smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, 1.5)
 
         xpeaks = self.ACR_obj.find_n_highest_peaks(smoothed_x_profile, 4)
-        logger.info(xpeaks)
         # The line profile should yield exactly 4 peaks unless we are off-centered.
         # The middle two peaks correspond to the edges of the wedge region on the horizontal plane.
         # The other two peaks denote the edges of the Phantom intersected on the horizontal plane.
