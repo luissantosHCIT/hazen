@@ -52,6 +52,7 @@ class ACRSlicePosition(HazenTask):
         self.ACR_obj = ACRObject(self.dcm_list)
         self.Y_WEDGE_OFFSET = int(19 / self.ACR_obj.dx)
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
+        self.GAUSSIAN_SIGMA = 2 / self.ACR_obj.dx
         self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
 
     def run(self) -> dict:
@@ -180,7 +181,7 @@ class ACRSlicePosition(HazenTask):
             reduce_func=np.mean,
         ).flatten()
         abs_diff_y_profile = np.abs(np.diff(yray))
-        smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, 1/self.ACR_obj.dy)
+        smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, self.GAUSSIAN_SIGMA)
 
         ypeaks = self.ACR_obj.find_n_highest_peaks(smoothed_y_profile, 5)
         # A properly centered phantom will not have any signal in upper region (0 < y <~20)
@@ -204,7 +205,7 @@ class ACRSlicePosition(HazenTask):
             reduce_func=np.mean,
         ).flatten()
         abs_diff_x_profile = np.abs(np.diff(xray))
-        smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, 1.5)
+        smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, self.GAUSSIAN_SIGMA)
 
         xpeaks = self.ACR_obj.find_n_highest_peaks(smoothed_x_profile, 4)
         # The line profile should yield exactly 4 peaks unless we are off-centered.
@@ -212,6 +213,8 @@ class ACRSlicePosition(HazenTask):
         # The other two peaks denote the edges of the Phantom intersected on the horizontal plane.
         # A simple average of the middle 2 peaks should give the exact x center coordinate of the wedge region.
         x_center = int(np.sum(xpeaks[0][1:3]) // 2)
+
+        logger.info('Wedge Bottom => {}, {}'.format(x_center, y_center))
 
         return [
             int(x_center - self.X_WEDGE_OFFSET),
@@ -237,6 +240,10 @@ class ACRSlicePosition(HazenTask):
             rescaled, self.ACR_obj.dx, self.ACR_obj.dy
         )
         x_pts, y_pts = self.find_wedges(rescaled, cxy)
+        logger.info('Wedge Locations => \n{}\n{}'.format(
+            (x_pts[0], y_pts[0]),
+            (x_pts[1], y_pts[1]))
+        )
 
         # line profile through left wedge
         line_prof_L = skimage.measure.profile_line(
