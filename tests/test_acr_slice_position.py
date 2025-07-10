@@ -107,3 +107,12 @@ class TestACRSlicePositionPhilips3TDStream(TestACRSlicePositionSiemens):
     slice_1_y_pts = [45, 83]
     slice_11_y_pts = [42, 80]
     dL = 1.56, -2.15
+
+
+class TestACRSlicePositionPhilips3TDStream2(TestACRSlicePositionSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream2")
+    slice_1_x_pts = [119, 125]
+    slice_11_x_pts = [124, 130]
+    slice_1_y_pts = [25, 63]
+    slice_11_y_pts = [43, 81]
+    dL = 3.12, -0.78
