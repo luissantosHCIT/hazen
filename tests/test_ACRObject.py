@@ -18,7 +18,7 @@ class TestACRTools(unittest.TestCase):
 
     def setUp(self):
         self.Siemens_data = [
-            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "Siemens", f"{i}"))
+            pydicom.dcmread(os.path.join(TEST_DATA_DIR, "acr", "Siemens", f"{i}"))
             for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "Siemens"))
         ]
 
@@ -59,7 +59,7 @@ class TestACRToolsGE(TestACRTools):
 
     def setUp(self):
         self.GE_data = [
-            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "GE", f"{i}"))
+            pydicom.dcmread(os.path.join(TEST_DATA_DIR, "acr", "GE", f"{i}"))
             for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "GE"))
         ]
 
@@ -90,7 +90,7 @@ class TestACRToolsPhilips(TestACRTools):
 
     def setUp(self):
         self.Philips_data = [
-            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "PhilipsAchieva", f"{i}"))
+            pydicom.dcmread(os.path.join(TEST_DATA_DIR, "acr", "PhilipsAchieva", f"{i}"))
             for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "PhilipsAchieva"))
         ]
 
@@ -116,7 +116,7 @@ class TestACRToolsSiemensSolaFit(TestACRTools):
 
     def setUp(self):
         self.Philips_data = [
-            pydicom.read_file(os.path.join(TEST_DATA_DIR, "acr", "SiemensSolaFit", f"{i}"))
+            pydicom.dcmread(os.path.join(TEST_DATA_DIR, "acr", "SiemensSolaFit", f"{i}"))
             for i in os.listdir(os.path.join(TEST_DATA_DIR, "acr", "SiemensSolaFit"))
         ]
 
