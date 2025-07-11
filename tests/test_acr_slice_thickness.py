@@ -11,9 +11,9 @@ from tests import TEST_DATA_DIR
 
 class TestACRSliceThicknessSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    centers = [(75.0, 2.0), (77.0, 2.0)]
-    dz = 5.44
-    dz_3x = 7.97
+    centers = [(75.0, 2.0), (84.0, 2.0)]
+    dz = 4.75
+    dz_3x = 7.51
     top_dz = 5.2
     bottom_dz = 5.7
 
@@ -107,17 +107,17 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
 
 class TestACRSliceThicknessPhilipsAchieva(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
-    centers = [(79.0, 2.0), (72.0, 2.0)]
-    dz = 5.59
-    dz_3x = 7.75
+    centers = [(79.0, 2.0), (71.0, 2.0)]
+    dz = 5.35
+    dz_3x = 7.42
     top_dz = 4.8
     bottom_dz = 6.7
 
 
 class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
-    centers = [(75.0, 2.0), (80.0, 2.0)]
-    dz = 5.03
-    dz_3x = 7.29
+    centers = [(74.0, 2.0), (79.0, 2.0)]
+    dz = 5.04
+    dz_3x = 7.37
     top_dz = 4.7
     bottom_dz = 5.4
