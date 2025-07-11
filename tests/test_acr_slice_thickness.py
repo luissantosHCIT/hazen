@@ -121,3 +121,29 @@ class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
     dz_3x = 7.37
     top_dz = 4.7
     bottom_dz = 5.4
+
+
+class TestACRSliceThicknessSiemensLargeSliceLocationDelta(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensLargeSliceLocationDelta")
+    centers = [(74.0, 2.0), (79.0, 2.0)]
+    dz = 5.04
+    dz_3x = 7.37
+    top_dz = 4.7
+    bottom_dz = 5.4
+
+
+class TestACRSliceThicknessPhilips3TDStream(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream")
+    centers = [(79.0, 2.0), (77.0, 2.0)]
+    dz = 5.0
+    dz_3x = 7.5
+    top_dz = 4.7
+    bottom_dz = 5.4
+
+class TestACRSliceThicknessPhilips3TDStream2(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream2")
+    centers = [(88.0, 2.0), (68.0, 2.0)]
+    dz = 5.45
+    dz_3x = 8.21
+    top_dz = 4.7
+    bottom_dz = 5.4
