@@ -329,7 +329,10 @@ class ACRSliceThickness(HazenTask):
             abs_x_diff_profile = np.absolute(x_diff)
 
             peaks, _ = self.ACR_obj.find_n_highest_peaks(abs_x_diff_profile, 5)
-            return np.ceil((peaks[0] + peaks[-1]) / 2)
+            y_center = (peaks[0] + peaks[-1]) // 2
+            logger.info(f'Peaks: {peaks}')
+            logger.info(f'Calculated Center: {y_center}')
+            return y_center
         except Exception as w:
             logger.warning(w)
             logger.warning('Defaulting to {} as insert y center!'.format(default_y_center))
