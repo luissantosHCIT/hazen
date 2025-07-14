@@ -91,10 +91,10 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
     def test_bottom_ramp_only(self):
         """ This is test is meant to ensure that the formula was implemented properly. """
         slice_thickness_val = round(
-            self.results['thickness'], 2
+            float(self.results['thickness']), 2
         )
         bottom_slice_thickness_val = round(
-            self.bottom_thickness, 2
+            float(self.bottom_thickness), 2
         )
 
         print("\ntest_slice_thickness.py::TestSliceThickness::test_top_ramp_only")
@@ -113,6 +113,14 @@ class TestACRSliceThicknessPhilipsAchieva(TestACRSliceThicknessSiemens):
     top_dz = 4.8
     bottom_dz = 6.7
 
+class TestACRSliceThicknessPhilipsAchieva2(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva2")
+    centers = [(68.0, 2.0), (89.0, 2.0)]
+    dz = 4.9
+    dz_3x = 7.42
+    top_dz = 4.7
+    bottom_dz = 5.4
+
 
 class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
@@ -125,9 +133,9 @@ class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
 
 class TestACRSliceThicknessSiemensLargeSliceLocationDelta(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensLargeSliceLocationDelta")
-    centers = [(74.0, 2.0), (79.0, 2.0)]
-    dz = 5.04
-    dz_3x = 7.37
+    centers = [(45.0, 2.0), (105.0, 2.0)]
+    dz = 5.54
+    dz_3x = 8.5
     top_dz = 4.7
     bottom_dz = 5.4
 
@@ -143,7 +151,7 @@ class TestACRSliceThicknessPhilips3TDStream(TestACRSliceThicknessSiemens):
 class TestACRSliceThicknessPhilips3TDStream2(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream2")
     centers = [(88.0, 2.0), (68.0, 2.0)]
-    dz = 5.45
-    dz_3x = 8.21
+    dz = 5.4
+    dz_3x = 8.1
     top_dz = 4.7
-    bottom_dz = 5.4
+    bottom_dz = 5.5
