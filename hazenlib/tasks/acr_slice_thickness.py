@@ -126,6 +126,7 @@ class ACRSliceThickness(HazenTask):
         self.SAMPLING_LINE_WIDTH = 4 / self.ACR_obj.dx   # How many pixel lines to use in the sampling during ramp line profiling.
         self.RAMP_HEIGHT = 4.5 / self.ACR_obj.dx         # I measured the ramp height to be about 5mm on PACS, but testing shows it might be slightly less??
         self.RAMP_Y_OFFSET = 1 / self.ACR_obj.dx         # 1mm adjustment off center to grab the bottom ramp. There's technically a 2mm gap between slots.
+        self.RAMP_X_OFFSET = 10 / self.ACR_obj.dx        # This is extra padding added to the resolved width of ramp to allow the FWHM have more samples than necessary in the event we underestimated the true length of the ramp.
         self.INSERT_ROI_HEIGHT = 10 / self.ACR_obj.dx    # Allow just enough space for slots but exclude insert boundaries
         self.INSERT_ROI_WIDTH = 150 / self.ACR_obj.dx    # Allow enough space to capture the slots which might be R-L offsetted.
         self.CROPPED_ROI_WIDTH = 150 / self.ACR_obj.dx   # Allow enough space to capture the slots which might be R-L offsetted.
@@ -350,9 +351,50 @@ class ACRSliceThickness(HazenTask):
             tuple: top slot ROI, bottom slot ROI
         """
         center_y = insert.shape[0] / 2
-        top_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y - self.RAMP_HEIGHT + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
-        bottom_roi_sample = self.ACR_obj.crop_image(insert, 0, abs(center_y + self.RAMP_Y_OFFSET), insert.shape[1], self.RAMP_HEIGHT, mode=None)
+        top_x = 0
+        top_y = abs(center_y - self.RAMP_HEIGHT + self.RAMP_Y_OFFSET)
+        top_width = insert.shape[1]
+        top_roi_sample = self.ACR_obj.crop_image(insert, top_x, top_y, top_width, self.RAMP_HEIGHT, mode=None)
+
+        bottom_x = 0
+        bottom_y = abs(center_y + self.RAMP_Y_OFFSET)
+        bottom_width = insert.shape[1]
+        bottom_roi_sample = self.ACR_obj.crop_image(insert, bottom_x, bottom_y, bottom_width, self.RAMP_HEIGHT, mode=None)
         return top_roi_sample, bottom_roi_sample
+
+    def find_ramp_max_width(self, ramp, y):
+        """The idea is to find the left x coordinate and the length of the ramp continuous signal until we detect a
+        drop off. The delta between the edge of the drop off and the initial edge of the ramp is the estimated width
+        of the ramp. I use the first two peaks encountered when going from left to right scanning for a ramp.
+        Technically, we could misjudge in the bottom slot if there is a large signal before the true ramp signal.
+        I pad the estimated width by 20 voxels to include more samples than necessary.
+
+        ..note::
+
+            The FWHM calculation step will correct for any over estimation.
+
+        Args:
+            ramp (np.ndarray): ramp to use in calculation of width.
+            y (int): y coordinate of the center of the ramp through which to draw the ray.
+
+        Returns:
+            tuple: x-offset, width.
+        """
+        # Raytrace to right of insert to find the edge of the insert
+        xray = skimage.measure.profile_line(
+            ramp,
+            (y, -1),
+            (y, ramp.shape[1] + 1),
+            mode="constant",
+            linewidth=int(1/self.ACR_obj.dx)
+        ).flatten()
+        abs_diff_x_profile = np.abs(np.diff(xray))
+        smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, 1)
+        xpeaks = self.ACR_obj.find_n_highest_peaks(smoothed_x_profile, 4)
+        x_offset = int(xpeaks[0][0] - self.RAMP_X_OFFSET)
+        width = int(xpeaks[0][1] + self.RAMP_X_OFFSET) - x_offset
+        logger.info('Ramp width was calculated to be {} pixels max starting at offset {}!'.format(width, x_offset))
+        return x_offset, width
 
     def find_ramp_center_width(self, ramp):
         """Given a ramp roi, perform a horizontal line profile looking for mean values.
@@ -375,20 +417,23 @@ class ACRSliceThickness(HazenTask):
         Returns:
             tuple: center point of ramp (x, y), width.
         """
-        blurred = self.ACR_obj.filter_with_gaussian(ramp)
-        y_mid = int(np.round(ramp.shape[0] / 2))
+        blurred = self.ACR_obj.filter_with_gaussian(ramp, 1 / self.ACR_obj.dx)
+        y_mid = int(np.round(ramp.shape[0] // 2))
+        offset, max_width = self.find_ramp_max_width(ramp, y_mid)
         samples = [
             skimage.measure.profile_line(
                 blurred,
                 (y_mid - 1, i),
                 (y_mid + 1, i),
-                mode="constant"
+                mode="constant",
             )
-            for i in range(ramp.shape[1])
+            for i in range(offset, offset + max_width)
         ]
-        profile = [np.sum(samples[i]) for i in range(ramp.shape[1])]
+        profile = [np.sum(samples[i]) for i in range(max_width)]
 
         cx, fwhm = self.ACR_obj.calculate_FWHM(profile)
+        cx += offset
+        logger.info(f'CX: {cx} FWHM: {fwhm}')
 
         return (cx, y_mid), float(fwhm)
 
