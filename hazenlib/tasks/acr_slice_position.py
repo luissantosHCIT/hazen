@@ -51,7 +51,7 @@ class ACRSlicePosition(HazenTask):
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
         self.Y_WEDGE_OFFSET = int(20 / self.ACR_obj.dx)
-        self.WEDGE_CENTER_Y = int(45 / self.ACR_obj.dx)
+        self.WEDGE_CENTER_Y = int(45 / self.ACR_obj.dx)           # Center region where it is safe to ray trace along x coordinate
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
         self.GAUSSIAN_SIGMA = 2 / self.ACR_obj.dx
         self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
