@@ -11,8 +11,8 @@ class TestACRSlicePositionSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
     slice_1_x_pts = [123, 129]
     slice_11_x_pts = [123, 129]
-    slice_1_y_pts = [45, 83]
-    slice_11_y_pts = [44, 82]
+    slice_1_y_pts = [44, 84]
+    slice_11_y_pts = [43, 83]
     dL = -0.59, -1.56
 
     def setUp(self):
@@ -68,26 +68,26 @@ class TestACRSlicePositionGE(TestACRSlicePositionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "GE")
     slice_1_x_pts = [247, 257]
     slice_11_x_pts = [246, 256]
-    slice_1_y_pts = [94, 168]
-    slice_11_y_pts = [96, 170]
-    dL = 0.51, 0.41
+    slice_1_y_pts = [92, 170]
+    slice_11_y_pts = [94, 172]
+    dL = 0.51, 4.47
 
 
 class TestACRSlicePositionPhilipsAchieva(TestACRSlicePositionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
-    slice_1_x_pts = [126, 132]
+    slice_1_x_pts = [125, 131]
     slice_11_x_pts = [123, 129]
-    slice_1_y_pts = [44, 82]
-    slice_11_y_pts = [42, 80]
-    dL = 0.78, -3.12
+    slice_1_y_pts = [43, 83]
+    slice_11_y_pts = [41, 81]
+    dL = 1.37, -3.12
 
 
 class TestACRSlicePositionSiemensSolaFit(TestACRSlicePositionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
     slice_1_x_pts = [124, 130]
     slice_11_x_pts = [123, 129]
-    slice_1_y_pts = [44, 82]
-    slice_11_y_pts = [42, 80]
+    slice_1_y_pts = [43, 83]
+    slice_11_y_pts = [41, 81]
     dL = -0.2, -1.37
 
 
@@ -95,8 +95,8 @@ class TestACRSlicePositionSiemensLargeSliceLocationDelta(TestACRSlicePositionSie
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensLargeSliceLocationDelta")
     slice_1_x_pts = [123, 129]
     slice_11_x_pts = [123, 129]
-    slice_1_y_pts = [38, 76]
-    slice_11_y_pts = [47, 85]
+    slice_1_y_pts = [37, 77]
+    slice_11_y_pts = [46, 86]
     dL = -6.64, -6.84
 
 
@@ -104,15 +104,24 @@ class TestACRSlicePositionPhilips3TDStream(TestACRSlicePositionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream")
     slice_1_x_pts = [124, 130]
     slice_11_x_pts = [124, 130]
-    slice_1_y_pts = [45, 83]
-    slice_11_y_pts = [42, 80]
+    slice_1_y_pts = [44, 84]
+    slice_11_y_pts = [41, 81]
     dL = 1.56, -2.15
 
 
 class TestACRSlicePositionPhilips3TDStream2(TestACRSlicePositionSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream2")
-    slice_1_x_pts = [119, 125]
+    slice_1_x_pts = [124, 130]
     slice_11_x_pts = [124, 130]
-    slice_1_y_pts = [25, 63]
-    slice_11_y_pts = [43, 81]
+    slice_1_y_pts = [24, 64]
+    slice_11_y_pts = [42, 82]
     dL = 3.12, -0.78
+
+# triggers mispositioning of line profiles under a prior algorithm revision.
+class TestACRSlicePositionSiemensSolaFit2(TestACRSlicePositionSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFitSlicePosition")
+    slice_1_x_pts = [124, 130]
+    slice_11_x_pts = [124, 130]
+    slice_1_y_pts = [30, 70]
+    slice_11_y_pts = [42, 82]
+    dL = -1.17, -2.54
