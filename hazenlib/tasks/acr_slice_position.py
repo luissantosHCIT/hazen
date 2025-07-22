@@ -55,6 +55,7 @@ class ACRSlicePosition(HazenTask):
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
         self.GAUSSIAN_SIGMA = 2 / self.ACR_obj.dx
         self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
+        self.INTERPOLATION_FACTOR = 0.2
 
     def run(self) -> dict:
         """Main function for performing slice position measurement
@@ -263,9 +264,8 @@ class ACRSlicePosition(HazenTask):
         ).flatten()
 
         # interpolation
-        interp_factor = 1 / 5
         x = np.arange(1, len(line_prof_L) + 1)
-        new_x = np.arange(1, len(line_prof_L) + interp_factor, interp_factor)
+        new_x = np.arange(1, len(line_prof_L) + self.INTERPOLATION_FACTOR, self.INTERPOLATION_FACTOR)
 
         # interpolate left line profile
         interp_line_prof_L = scipy.interpolate.interp1d(x, line_prof_L)(new_x)
@@ -322,10 +322,10 @@ class ACRSlicePosition(HazenTask):
         shift = -lag[temp][0] if pos == 1 else lag[temp][0]
 
         # calculate bar length difference
-        dL = pos * np.abs(shift) * interp_factor * self.ACR_obj.dy
+        dL = pos * np.abs(shift) * self.INTERPOLATION_FACTOR * self.ACR_obj.dy
 
         if self.report:
-            self.write_report(dcm, rescaled, cxy, x_pts, y_pts, interp_line_prof_L, interp_line_prof_R, interp_factor,
-                              pos, shift)
+            self.write_report(dcm, rescaled, cxy, x_pts, y_pts, interp_line_prof_L, interp_line_prof_R,
+                              self.INTERPOLATION_FACTOR, pos, shift)
 
         return dL
