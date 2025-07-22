@@ -50,7 +50,8 @@ class ACRSlicePosition(HazenTask):
         super().__init__(**kwargs)
         # Initialise ACR object
         self.ACR_obj = ACRObject(self.dcm_list)
-        self.Y_WEDGE_OFFSET = int(19 / self.ACR_obj.dx)
+        self.Y_WEDGE_OFFSET = int(20 / self.ACR_obj.dx)
+        self.WEDGE_CENTER_Y = int(45 / self.ACR_obj.dx)
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
         self.GAUSSIAN_SIGMA = 2 / self.ACR_obj.dx
         self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
@@ -184,8 +185,10 @@ class ACRSlicePosition(HazenTask):
         smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, self.GAUSSIAN_SIGMA)
 
         ypeaks = self.ACR_obj.find_n_highest_peaks(smoothed_y_profile, 5)
-        # A properly centered phantom will not have any signal in upper region (0 < y <~20)
+        # A properly centered phantom will not have any signal in upper region (0 < y <~40)
         # Very small hack to filter out any "peak" signal in that region.
+        # This is to make sure that phantoms with a well demarcated upper edge of the wedge do not bias the line profile
+        # placement towards the upper portion of the wedge box.
         ypeaks = [p for p in ypeaks[0] if p > self.MINIMUM_Y_PEAK_THRESHOLD]
         # The line profile should yield a minimum of 4 peaks.
         # The first peak denotes the start of the phantom.
@@ -194,12 +197,17 @@ class ACRSlicePosition(HazenTask):
         # they imply the edges of elements around the center
         y_center = ypeaks[1]
 
-        # Raytrace upward to find transition zone of wedge
-        top_y = int(y_center - self.Y_WEDGE_OFFSET)
+        # Raytrace sideways assuming static general center of wedge to detect side transitions of the wedge box.
+        # The more miscentered the phantom, the more likely to get the wrong x coordinates of the wedges, but
+        # the static center was selected such that other relative phantom features do not interfere unless
+        # the phantom is in a really bad location.
+        # Small jitters should not have as much of an impact as relative computation of this center experienced.
+        # As an added benefit, we should still get a decently accurate result even if we capture the upper bound of
+        # the wedges with line profiles because the delta is based on the bottom differences.
         xray = skimage.measure.profile_line(
             img,
-            (top_y, 0),
-            (top_y, img.shape[0]),
+            (self.WEDGE_CENTER_Y, 0),
+            (self.WEDGE_CENTER_Y, img.shape[0]),
             linewidth=int(1/self.ACR_obj.dx),
             mode="constant",
             reduce_func=np.mean,
@@ -271,6 +279,7 @@ class ACRSlicePosition(HazenTask):
         peaks, _ = ACRObject.find_n_highest_peaks(
             abs(delta), 2, 0.5 * np.max(abs(delta))
         )
+        logger.info(peaks)
 
         # if only one peak, set dummy range
         if len(peaks) == 1:
