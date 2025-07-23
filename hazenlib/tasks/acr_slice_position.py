@@ -79,8 +79,10 @@ class ACRSlicePosition(HazenTask):
                     "length difference": round(result, 2)
                 }
             except Exception as e:
-                logger.error(
-                    f"Could not calculate the bar length difference for {self.img_desc(dcm)} because of : {e}"
+                logger.exception(
+                    "Could not calculate the bar length difference for %s"
+                    " because of : %s",
+                    self.img_desc(dcm), e,
                 )
                 traceback.print_exc(file=sys.stdout)
                 continue

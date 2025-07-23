@@ -166,8 +166,10 @@ class ACRSliceThickness(HazenTask):
             results["measurement"] = {"slice width mm": round(thickness_results['thickness'], 2)}
             results["ramps"] = thickness_results["ramps"]
         except Exception as e:
-            logger.error(
-                f"Could not calculate the slice thickness for {self.img_desc(slice_thickness_dcm)} because of : {e}"
+            logger.exception(
+                "Could not calculate the slice thickness for %s"
+                " because of : %s",
+                self.img_desc(slice_thickness_dcm), e,
             )
             traceback.print_exc(file=sys.stdout)
 

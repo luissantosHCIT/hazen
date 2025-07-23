@@ -119,8 +119,11 @@ class ACRSpatialResolution(HazenTask):
                 "rows": hole_arrays
             }
         except Exception as e:
-            logger.error(
-                f"Could not calculate the spatial resolution for {self.img_desc(dcm)} because of : {e}"
+            logger.exception(
+                "Could not calculate the spatial resolution for %s"
+                " because of : %s",
+                self.img_desc(mtf_dcm),
+                e,
             )
             traceback.print_exc(file=sys.stdout)
 
