@@ -53,7 +53,7 @@ class ACRSlicePosition(HazenTask):
         self.Y_WEDGE_OFFSET = int(20 / self.ACR_obj.dx)
         self.WEDGE_CENTER_Y = int(45 / self.ACR_obj.dx)           # Center region where it is safe to ray trace along x coordinate
         self.X_WEDGE_OFFSET = int(3 / self.ACR_obj.dx)
-        self.GAUSSIAN_SIGMA = 2 / self.ACR_obj.dx
+        self.GAUSSIAN_SIGMA = 2.5 / self.ACR_obj.dx
         self.MINIMUM_Y_PEAK_THRESHOLD = int(20 / self.ACR_obj.dx)
         self.INTERPOLATION_FACTOR = 0.2
 
@@ -186,7 +186,7 @@ class ACRSlicePosition(HazenTask):
         smoothed_y_profile = scipy.ndimage.gaussian_filter1d(abs_diff_y_profile, self.GAUSSIAN_SIGMA)
 
         ypeaks = self.ACR_obj.find_n_highest_peaks(smoothed_y_profile, 5)
-        # A properly centered phantom will not have any signal in upper region (0 < y <~40)
+        # A properly centered phantom will not have any signal in upper region (0 < y <~20)
         # Very small hack to filter out any "peak" signal in that region.
         # This is to make sure that phantoms with a well demarcated upper edge of the wedge do not bias the line profile
         # placement towards the upper portion of the wedge box.
