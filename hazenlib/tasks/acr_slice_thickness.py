@@ -133,6 +133,7 @@ class ACRSliceThickness(HazenTask):
         self.CROPPED_ROI_HEIGHT = 20 / self.ACR_obj.dx   # Capture slots plus some surrounding areas to help visualization in report.
         self.WINDOW_ROI_WIDTH = 10 / self.ACR_obj.dx     # Rectangle that captures enough of a population at the center to determine proper mean signal of slots.
         self.WINDOW_ROI_HEIGHT = 5 / self.ACR_obj.dx     # Rectangle that captures enough of a population at the center to determine proper mean signal of slots.
+        self.RAMP_PROFILE_SMOOTHING = 5 / self.ACR_obj.dx# Smoothing to apply on sampled line profile to remove local minimas within the slot.
 
     def run(self) -> dict:
         """Main function for performing slice width measurement
@@ -391,7 +392,8 @@ class ACRSliceThickness(HazenTask):
             linewidth=int(1/self.ACR_obj.dx)
         ).flatten()
         abs_diff_x_profile = np.abs(np.diff(xray))
-        smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, 1)
+        smoothed_x_profile = scipy.ndimage.gaussian_filter1d(abs_diff_x_profile, self.RAMP_PROFILE_SMOOTHING)
+
         xpeaks = self.ACR_obj.find_n_highest_peaks(smoothed_x_profile, 4)
         x_offset = int(xpeaks[0][0] - self.RAMP_X_OFFSET)
         width = int(xpeaks[0][1] + self.RAMP_X_OFFSET) - x_offset
