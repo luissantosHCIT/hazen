@@ -6,7 +6,7 @@ pytest==7.4.2
 docopt==0.6.2
 opencv-python-headless==4.8.1.78
 scikit-image==0.21.0
-scipy==1.11.3
+scipy==1.17.0
 imutils==0.5.4
 colorlog==6.7.0
 sphinx==6.2.1
