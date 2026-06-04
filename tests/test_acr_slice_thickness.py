@@ -11,9 +11,9 @@ from tests import TEST_DATA_DIR
 
 class TestACRSliceThicknessSiemens(unittest.TestCase):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Siemens")
-    centers = [(75.0, 2.0), (77.0, 2.0)]
-    dz = 5.44
-    dz_3x = 7.97
+    centers = [(75.0, 2.0), (84.0, 2.0)]
+    dz = 4.75
+    dz_3x = 7.51
     top_dz = 5.2
     bottom_dz = 5.7
 
@@ -91,10 +91,10 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
     def test_bottom_ramp_only(self):
         """ This is test is meant to ensure that the formula was implemented properly. """
         slice_thickness_val = round(
-            self.results['thickness'], 2
+            float(self.results['thickness']), 2
         )
         bottom_slice_thickness_val = round(
-            self.bottom_thickness, 2
+            float(self.bottom_thickness), 2
         )
 
         print("\ntest_slice_thickness.py::TestSliceThickness::test_top_ramp_only")
@@ -107,17 +107,59 @@ class TestACRSliceThicknessSiemens(unittest.TestCase):
 
 class TestACRSliceThicknessPhilipsAchieva(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva")
-    centers = [(79.0, 2.0), (72.0, 2.0)]
-    dz = 5.59
-    dz_3x = 7.75
+    centers = [(79.0, 2.0), (71.0, 2.0)]
+    dz = 5.35
+    dz_3x = 7.42
     top_dz = 4.8
     bottom_dz = 6.7
+
+class TestACRSliceThicknessPhilipsAchieva2(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsAchieva2")
+    centers = [(68.0, 2.0), (89.0, 2.0)]
+    dz = 4.9
+    dz_3x = 7.42
+    top_dz = 4.7
+    bottom_dz = 5.4
 
 
 class TestACRSliceThicknessSiemensSolaFit(TestACRSliceThicknessSiemens):
     ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensSolaFit")
-    centers = [(75.0, 2.0), (80.0, 2.0)]
-    dz = 5.03
-    dz_3x = 7.29
+    centers = [(74.0, 2.0), (79.0, 2.0)]
+    dz = 5.04
+    dz_3x = 7.37
     top_dz = 4.7
     bottom_dz = 5.4
+
+
+class TestACRSliceThicknessSiemensLargeSliceLocationDelta(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "SiemensLargeSliceLocationDelta")
+    centers = [(45.0, 2.0), (105.0, 2.0)]
+    dz = 5.54
+    dz_3x = 8.5
+    top_dz = 4.7
+    bottom_dz = 5.4
+
+
+class TestACRSliceThicknessPhilips3TDStream(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream")
+    centers = [(79.0, 2.0), (77.0, 2.0)]
+    dz = 5.0
+    dz_3x = 7.5
+    top_dz = 4.7
+    bottom_dz = 5.4
+
+class TestACRSliceThicknessPhilips3TDStream2(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "Philips3TdStream2")
+    centers = [(88.0, 2.0), (68.0, 2.0)]
+    dz = 5.4
+    dz_3x = 8.1
+    top_dz = 4.7
+    bottom_dz = 5.5
+
+class TestACRPhilipsSliceThicknessLineProfileLocalMinimaIssue(TestACRSliceThicknessSiemens):
+    ACR_DATA = pathlib.Path(TEST_DATA_DIR / "acr" / "PhilipsSliceThicknessLineProfileLocalMinimaIssue")
+    centers = [(81.0, 2.0), (74.0, 2.0)]
+    dz = 5.0
+    dz_3x = 7.5
+    top_dz = 4.7
+    bottom_dz = 5.5

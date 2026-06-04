@@ -173,6 +173,10 @@ class ACRObject:
             radius = (bbox[2], bbox[3])
         logger.info(f"Centroid (x, y) => {centre_x}, {centre_y}")
 
+        logger.info(
+            "Phantom center found at (%i,%i) with radius %f",
+            centre_x, centre_y, radius,
+        )
         return (centre_x, centre_y), radius
 
     @staticmethod
